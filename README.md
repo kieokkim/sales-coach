@@ -1,8 +1,8 @@
 # SalesCoach
 
-> ERP 데이터 → LangGraph 파이프라인 → 대시보드 리포트 자동 발송
+> ERP 데이터 → LangGraph 파이프라인 → 판단 레이어 → 대시보드 리포트 자동 발송
 
-일일 매출 ERP 파일을 업로드하면 KPI 분석, 타겟 달성률 계산, 이상치 탐지, AI 코멘터리 생성까지 자동으로 처리하고 HTML 이메일 또는 Excel 리포트로 발송합니다.
+일일 매출 ERP 파일을 업로드하면 KPI 분석, 타겟 달성률 계산, 이상치 탐지, 패턴 분석, AI 인사이트/액션 도출, 코멘터리 생성까지 자동으로 처리하고 HTML 이메일 또는 Excel 리포트로 발송합니다.
 
 ---
 
@@ -10,20 +10,25 @@
 
 전 직장에서 판매일보는 매일 수동으로 만들었습니다. ERP에서 데이터를 내려받고, 엑셀 피벗으로 가공하고, 예외를 수작업으로 걸러내고, 양식을 채워 메일로 발송하는 과정이 반복됐습니다. 가장 시간이 많이 걸린 건 가공과 에러 검수였고, 프로모션 여부처럼 ERP에 표기되지 않는 예외는 매번 수기로 처리해야 했습니다.
 
-SalesCoach는 이 반복 작업을 파이프라인으로 자동화하고, 경영진이 리포트를 열자마자 "이번 달 타겟 달성 가능한가"를 즉시 판단할 수 있도록 설계했습니다.
+SalesCoach는 이 반복 작업을 파이프라인으로 자동화하고, 담당자가 아침 5분 안에 "오늘 무엇을 해야 하는가"를 즉시 결정할 수 있도록 설계했습니다.
 
 ---
 
 ## 주요 기능
 
-- **LangGraph 파이프라인** — 12개 노드로 구성된 데이터 처리 흐름. 어떤 노드가 실패해도 파이프라인은 완주합니다 (graceful degradation)
+- **LangGraph 파이프라인** — 15개 노드로 구성된 데이터 처리 흐름. 어떤 노드가 실패해도 파이프라인은 완주합니다 (graceful degradation)
 - **타겟 달성률 추적** — 월별 전체 및 플랫폼별 타겟 대비 누계 달성률, 잔여 일수 기반 필요 일평균 자동 계산
+- **카테고리/제품별 집계** — 대분류→중분류→소분류 계층 집계, 제품코드별 매출 및 반품률 추적, ZRE 전용(판매 없는 반품) 별도 집계
 - **로컬 SQLite 누적 저장** — 일별 KPI를 로컬 DB에 누적. 월 누계, 연도별 추이 분석 가능. 보안 데이터가 외부로 나가지 않음
 - **중복 방지 가드레일** — 동일 날짜 데이터를 두 번 업로드해도 DB 중복 없음 (`INSERT OR IGNORE`)
 - **rule-based 이상치 탐지** — 매출 0, 음수 순영수증, 봉사료 비율 이상을 LLM 없이 탐지
-- **AI 코멘터리** — KPI 요약과 이상치를 컨텍스트로 GPT-4o-mini가 비즈니스 리포트 어조로 코멘터리 생성. API 키 없어도 파이프라인 완주
+- **패턴 탐지** — 7일 평균 대비 오늘 증감률, 반품률 이상 감지, 월말 매출 예측, 프로모션 효과 측정 (rule-based, LLM 없음)
+- **AI 인사이트 판단** — 패턴 데이터를 LLM이 해석해 핵심 이슈/리스크/기회를 JSON 구조화 출력
+- **액션 도출** — 오늘 즉시/이번 주/이번 달 3단계 액션을 담당자 단위로 명시
+- **AI 코멘터리** — 인사이트와 액션을 컨텍스트로 GPT-4o-mini가 임원 보고용 코멘터리 생성. API 키 없어도 파이프라인 완주
+- **인사이트 카드 UI** — 핵심 이슈, 월말 예측, 오늘 할 일 3개 카드를 대시보드 상단에 표시
+- **시계열 차트** — 일별/주별/월별 매출 추이, 채널별/플랫폼별/중분류별/제품별 분석 (Plotly)
 - **출력 옵션** — HTML 이메일 본문 / Excel 파일 첨부 / 둘 다 선택 가능
-- **대시보드 UI** — 반원 게이지, 바 차트, 채널 뱃지 테이블을 포함한 커스텀 Streamlit 대시보드
 
 ---
 
@@ -38,19 +43,25 @@ START → file_load → preprocess → kpi_compute → db_save → db_load_cumul
                                                                     │
                                                            anomaly_detect
                                                                     │
-                                                            commentary  ← 유일한 LLM 노드
+                                                           pattern_detect  ← rule-based 패턴 계산
+                                                                    │
+                                                              insight     ← LLM 인사이트 판단
+                                                                    │
+                                                               action     ← LLM 액션 도출
+                                                                    │
+                                                            commentary    ← LLM 서술
                                                                     │
                                           ┌─────────────────────────┤
-                                     html_only                     both                excel_only
-                                          │                          │                      │
-                                     build_html              build_html              build_excel
-                                          │                          │                      │
-                                     email_send              build_excel                   END
+                                     html_only                     both               excel_only
+                                          │                          │                     │
+                                     build_html              build_html             build_excel
+                                          │                          │                     │
+                                     email_send              build_excel                  END
                                                                      │
                                                               email_send
 ```
 
-**설계 원칙**: LLM은 `commentary_node` 단 하나. 나머지는 전부 rule-based. LLM에게 계산을 맡기지 않고 설명과 요약만 담당하게 합니다.
+**설계 원칙**: rule-based가 수치를 계산하고, LLM은 판단/도출/서술만 담당합니다. LLM 노드는 `insight_node`, `action_node`, `commentary_node` 3개. 계산은 LLM에 맡기지 않습니다.
 
 ---
 
@@ -63,7 +74,7 @@ START → file_load → preprocess → kpi_compute → db_save → db_load_cumul
 | 데이터 처리 | pandas, openpyxl |
 | 로컬 DB | SQLite |
 | 리포트 | Jinja2 (HTML), openpyxl (Excel) |
-| UI | Streamlit |
+| UI | Streamlit, Plotly |
 | 이메일 | SMTP (Gmail) |
 
 ---
@@ -72,31 +83,37 @@ START → file_load → preprocess → kpi_compute → db_save → db_load_cumul
 
 ```
 sales-daily-agent/
-├── graph.py                 # SalesDailyState + LangGraph 그래프
-├── config.py                # 타겟, 플랫폼 매핑, 임계값
+├── graph.py                 # SalesDailyState + LangGraph 그래프 (15노드)
+├── config.py                # 타겟, 플랫폼 매핑, 임계값, 프로모션
 ├── db.py                    # SQLite 초기화 + 공통 get_db()
 ├── streamlit_app.py
 ├── pages/
-│   ├── 1_upload.py          # 파일 업로드 + 옵션 선택
-│   ├── 2_loading.py         # 파이프라인 실행 + 10단계 체크리스트
-│   └── 3_report.py          # 대시보드 리포트
+│   ├── 1_upload.py          # 파일 업로드 + 날짜 선택 + 옵션 설정
+│   ├── 2_loading.py         # 파이프라인 실행 + 단계별 체크리스트
+│   └── 3_report.py          # 인사이트 카드 + KPI 대시보드 + 시계열 차트
 ├── nodes/
 │   ├── load_nodes.py
-│   ├── preprocess_nodes.py  # ERP 데이터 정제 (오프라인/온라인)
-│   ├── kpi_nodes.py         # 매출/영수증/포인트 집계
-│   ├── db_nodes.py          # SQLite 저장 + 월 누계 조회
+│   ├── preprocess_nodes.py  # ERP 데이터 정제 + 날짜 필터
+│   ├── kpi_nodes.py         # 매출/영수증/포인트 + 카테고리/제품별 집계
+│   ├── db_nodes.py          # SQLite 저장 + 월 누계 + 30일 제품 누적 조회
 │   ├── target_nodes.py      # 타겟 달성률 계산
 │   ├── anomaly_nodes.py     # rule-based 이상치 탐지
-│   ├── commentary_nodes.py  # LLM 코멘터리 생성
+│   ├── pattern_nodes.py     # 7일 평균/반품률/월말예측/프로모션 효과
+│   ├── insight_node.py      # LLM 인사이트 판단 (JSON 구조화)
+│   ├── action_node.py       # LLM 액션 도출 (3단계)
+│   ├── commentary_nodes.py  # LLM 서술형 코멘터리
 │   ├── report_nodes.py      # HTML + Excel 리포트 빌드
 │   └── email_nodes.py       # SMTP 발송
+├── scripts/
+│   └── seed_db.py           # 샘플 데이터 DB 사전 적재 (최초 1회)
 ├── templates/
 │   └── report.html          # 이메일용 HTML 템플릿
 ├── utils/
 │   └── styles.py            # Streamlit CSS 커스터마이징
 └── data/
-    ├── sample_offline.xlsx  # 오프라인 샘플 데이터
-    └── sample_online.xlsx   # 온라인 샘플 데이터
+    ├── sample_offline_3months.xlsx  # 오프라인 샘플 91일치
+    ├── sample_online_3months.xlsx   # 온라인 샘플 91일치
+    └── product_master.xlsx          # 제품 마스터 (69개)
 ```
 
 ---
@@ -105,8 +122,8 @@ sales-daily-agent/
 
 ```bash
 # 1. 레포 클론
-git clone https://github.com/kieokkim/sales-daily-agent.git
-cd sales-daily-agent
+git clone https://github.com/kieokkim/sales-coach.git
+cd sales-coach
 
 # 2. 가상환경 생성 및 의존성 설치
 uv venv && source .venv/bin/activate
@@ -116,8 +133,11 @@ uv pip install -r requirements.txt
 cp .env.example .env
 # .env 파일에 OPENAI_API_KEY, EMAIL_SENDER, EMAIL_PASSWORD 입력
 
-# 4. 실행
-streamlit run streamlit_app.py
+# 4. 샘플 DB 사전 적재 (최초 1회 — 7일/30일 비교 데이터 생성)
+uv run python scripts/seed_db.py
+
+# 5. 실행
+uv run streamlit run streamlit_app.py
 ```
 
 OPENAI_API_KEY와 이메일 설정 없이도 파이프라인은 정상 실행됩니다. LLM 코멘터리와 이메일 발송만 생략됩니다.
@@ -126,10 +146,26 @@ OPENAI_API_KEY와 이메일 설정 없이도 파이프라인은 정상 실행됩
 
 ## 샘플 데이터로 테스트
 
-`data/` 디렉토리에 포함된 샘플 데이터로 전체 파이프라인을 테스트할 수 있습니다.
+`data/` 디렉토리에 샘플 데이터가 포함되어 있습니다.
 
-- `sample_offline.xlsx` — 오프라인 지점(HCC, HCC 부산점, HCC 제주점) 7일치 거래 데이터 (236행)
-- `sample_online.xlsx` — 온라인 플랫폼(네이버, 카카오페이 등) 7일치 거래 데이터 (308행)
+- `sample_offline_3months.xlsx` — 오프라인 3개 매장(HCC서울/부산/제주) 91일치 (12,803행)
+- `sample_online_3months.xlsx` — 온라인 3개 플랫폼(메이크샵/네이버/카카오) 91일치 (23,159행)
+- `product_master.xlsx` — 헬리녹스 제품 마스터 69개 (대분류/중분류/소분류/제품코드/단가)
+
+샘플 데이터 기간: 2025-04-01 ~ 2025-06-30
+
+**포함된 시나리오:**
+- 어버이날 프로모션 효과 (5/1~5/10)
+- V.TARP 재입고 이벤트 (5/12~5/24) + 품질 이슈로 60% 반품 (5/25)
+- 계절 가중치 (6월 여름 시즌 진입)
+
+**테스트 추천 날짜:** 2025-05-25  
+→ V.TARP 반품 급증(457건), 7일 평균 대비 +192% 매출, 다채널 이상치 동시 발생
+
+**실행 순서:**
+1. `uv run python scripts/seed_db.py` (최초 1회)
+2. streamlit 실행 후 날짜 2025-05-25 선택
+3. 샘플 파일 2개 업로드 후 리포트 생성
 
 ---
 
@@ -139,12 +175,12 @@ OPENAI_API_KEY와 이메일 설정 없이도 파이프라인은 정상 실행됩
 
 ```python
 MONTHLY_TARGETS = {
-    "2026-05": {
-        "_total":     50_000_000,   # 전체 월 타겟
-        "HCC":        20_000_000,
-        "HCC 부산점": 12_000_000,
-        "HCC 제주점":  8_000_000,
-        "메이크샵":   10_000_000,
+    "2025-05": {
+        "_total":         5_000_000_000,  # 전체 월 타겟
+        "HCC":            2_000_000_000,
+        "HCC 부산점":     1_000_000_000,
+        "HCC 제주점":       800_000_000,
+        "메이크샵":       1_200_000_000,
     },
 }
 ```
@@ -157,7 +193,7 @@ UI의 타겟 설정 expander에서 즉석으로 입력할 수도 있습니다.
 
 | 변수 | 설명 | 필수 |
 |------|------|------|
-| `OPENAI_API_KEY` | LLM 코멘터리 생성 | 선택 |
+| `OPENAI_API_KEY` | LLM 코멘터리/인사이트/액션 생성 | 선택 |
 | `EMAIL_SENDER` | 발신 Gmail 주소 | 선택 |
 | `EMAIL_PASSWORD` | Gmail 앱 비밀번호 | 선택 |
 | `EMAIL_RECIPIENTS` | 수신자 (쉼표 구분) | 선택 |
@@ -168,9 +204,9 @@ UI의 타겟 설정 expander에서 즉석으로 입력할 수도 있습니다.
 
 ## 확장 계획
 
-- **v1.2** — 포인트 코호트 분석 노드 추가 (신규/기존 고객 분류, 교차방문 분석)
-- **v1.3** — Gmail API 자동 수집 (ERP 자동 발송 메일 파싱)
-- **v2.0** — Agent Harness 구조로 전환 (다른 도메인에 동일 파이프라인 적용 가능하게)
+- **v1.2** ✅ — 카테고리/제품 집계, 패턴 탐지, LLM 인사이트/액션 판단 레이어, 시계열 차트
+- **v1.3** — 대화형 분석 인터페이스 (자연어 질의 → DB 조회 → LLM 답변)
+- **v2.0** — Agent Harness 구조 전환 (다른 도메인에 동일 파이프라인 적용)
 
 ---
 
