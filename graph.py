@@ -9,10 +9,12 @@ from nodes.kpi_nodes import kpi_compute_node
 from nodes.db_nodes import db_save_node, db_load_cumulative_node
 from nodes.target_nodes import target_compare_node
 from nodes.anomaly_nodes import anomaly_detect_node
+from nodes.pattern_nodes import pattern_detect_node
+from nodes.insight_node import insight_node
+from nodes.action_node import action_node
 from nodes.commentary_nodes import commentary_node
 from nodes.report_nodes import build_html_node, build_excel_node
 from nodes.email_nodes import email_send_node
-
 
 class SalesDailyState(TypedDict):
     # 인풋
@@ -42,6 +44,11 @@ class SalesDailyState(TypedDict):
 
     # 이상치
     anomalies: list[dict]
+
+    # 판단 레이어
+    patterns: dict
+    insights: dict
+    actions: list
 
     # LLM
     llm_commentary: str
@@ -79,6 +86,9 @@ def build_graph():
     graph.add_node("db_load_cumulative", db_load_cumulative_node)
     graph.add_node("target_compare", target_compare_node)
     graph.add_node("anomaly_detect", anomaly_detect_node)
+    graph.add_node("pattern_detect", pattern_detect_node)
+    graph.add_node("insight", insight_node)
+    graph.add_node("action", action_node)
     graph.add_node("commentary", commentary_node)
     graph.add_node("build_html", build_html_node)
     graph.add_node("build_excel", build_excel_node)
@@ -91,7 +101,10 @@ def build_graph():
     graph.add_edge("db_save", "db_load_cumulative")
     graph.add_edge("db_load_cumulative", "target_compare")
     graph.add_edge("target_compare", "anomaly_detect")
-    graph.add_edge("anomaly_detect", "commentary")
+    graph.add_edge("anomaly_detect", "pattern_detect")
+    graph.add_edge("pattern_detect", "insight")
+    graph.add_edge("insight", "action")
+    graph.add_edge("action", "commentary")
 
     # commentary → html_first or excel_only
     graph.add_conditional_edges(

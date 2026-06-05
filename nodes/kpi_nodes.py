@@ -18,23 +18,123 @@ def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명") -> li
         total_point = grp["포인트"].sum() if "포인트" in grp.columns else 0
         total_fee = grp["봉사료"].sum() if "봉사료" in grp.columns else 0
 
-        records.append(
-            {
-                "platform": str(platform),
-                "zor": zor,
-                "zre": zre,
-                "net_receipt": net_receipt,
-                "total_sales": int(total_sales),
-                "total_point": int(total_point),
-                "total_fee": int(total_fee),
-            }
-        )
+        records.append({
+            "platform": str(platform),
+            "zor": zor,
+            "zre": zre,
+            "net_receipt": net_receipt,
+            "total_sales": int(total_sales),
+            "total_point": int(total_point),
+            "total_fee": int(total_fee),
+        })
     return records
+
+
+def _compute_by_category(df: pd.DataFrame) -> list[dict]:
+    """대분류 → 중분류 → 소분류 계층별 매출 집계 (ZOR 기준)"""
+    if df.empty:
+        return []
+
+    required = {"대분류내역", "중분류내역", "소분류내역", "매출", "오더유형"}
+    missing = required - set(df.columns)
+    if missing:
+        logger.warning(f"카테고리 집계 컬럼 부족: {missing}")
+        return []
+
+    zor = df[df["오더유형"] == "ZOR"].copy()
+    if zor.empty:
+        return []
+
+    records = []
+    for (l1, l2, l3), grp in zor.groupby(
+        ["대분류내역", "중분류내역", "소분류내역"], sort=False
+    ):
+        records.append({
+            "category_l1": str(l1),
+            "category_l2": str(l2),
+            "category_l3": str(l3),
+            "qty": int(grp["수량"].sum()) if "수량" in grp.columns else len(grp),
+            "total_sales": int(grp["매출"].sum()),
+        })
+
+    records.sort(key=lambda x: x["total_sales"], reverse=True)
+    return records
+
+
+def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
+    required = {"제품코드", "제품명", "매출", "오더유형"}
+    missing = required - set(df.columns)
+    if missing:
+        logger.warning(f"제품 집계 컬럼 부족: {missing}")
+        return []
+
+    zor = df[df["오더유형"] == "ZOR"].copy()
+    zre = df[df["오더유형"] == "ZRE"].copy()
+
+    # ZRE 건수 미리 집계
+    zre_count = (
+        zre.groupby("제품코드").size().to_dict()
+        if not zre.empty else {}
+    )
+
+    group_cols = ["제품코드", "제품명"]
+    if "소분류내역" in df.columns:
+        group_cols.append("소분류내역")
+
+    records = []
+
+    # ZOR 기준 집계 (기존)
+    if not zor.empty:
+        for keys, grp in zor.groupby(group_cols, sort=False):
+            if isinstance(keys, str):
+                keys = (keys,)
+            product_code = str(keys[0])
+            records.append({
+                "product_code": product_code,
+                "product_name": str(keys[1]),
+                "category_l3": str(keys[2]) if len(keys) > 2 else "",
+                "qty": int(grp["수량"].sum()) if "수량" in grp.columns else len(grp),
+                "total_sales": int(grp["매출"].sum()),
+                "zre_qty": zre_count.get(product_code, 0),
+            })
+
+    # ZRE만 있는 제품 추가 (오늘 반품만 발생한 케이스)
+    if not zre.empty:
+        zor_codes = {r["product_code"] for r in records}
+        for keys, grp in zre.groupby(group_cols, sort=False):
+            if isinstance(keys, str):
+                keys = (keys,)
+            product_code = str(keys[0])
+            if product_code not in zor_codes:
+                records.append({
+                    "product_code": product_code,
+                    "product_name": str(keys[1]),
+                    "category_l3": str(keys[2]) if len(keys) > 2 else "",
+                    "qty": 0,
+                    "total_sales": 0,
+                    "zre_qty": int(len(grp)),
+                })
+
+    # ZOR 제품: total_sales 내림차순 top_n개
+    # ZRE 전용 제품(total_sales=0): 항상 전량 포함 (반품 이상 감지용)
+    zor_records = sorted(
+        [r for r in records if r["total_sales"] > 0],
+        key=lambda x: x["total_sales"], reverse=True
+    )
+    zre_only_records = sorted(
+        [r for r in records if r["total_sales"] == 0 and r["zre_qty"] > 0],
+        key=lambda x: x["zre_qty"], reverse=True
+    )
+    return zor_records[:top_n] + zre_only_records
 
 
 def kpi_compute_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
-    kpi_summary = {"by_platform": []}
+    kpi_summary = {
+        "by_platform": [],
+        "by_category": [],
+        "by_product": [],
+    }
     kpi_total = {
         "net_receipt": 0,
         "total_sales": 0,
@@ -46,15 +146,13 @@ def kpi_compute_node(state: dict) -> dict:
         offline = state.get("offline_processed")
         online = state.get("online_processed")
 
+        # ── 기존: by_platform ────────────────────────────
         all_records = []
-
         if offline is not None and not offline.empty:
             all_records.extend(_compute_kpi_for(offline))
-
         if online is not None and not online.empty:
             all_records.extend(_compute_kpi_for(online))
 
-        # 같은 플랫폼이 오프/온라인에 겹치는 경우 합산
         merged: dict[str, dict] = {}
         for rec in all_records:
             p = rec["platform"]
@@ -73,7 +171,23 @@ def kpi_compute_node(state: dict) -> dict:
             kpi_total["total_point"] += rec["total_point"]
             kpi_total["total_fee"] += rec["total_fee"]
 
-        logger.info(f"KPI 집계 완료: {len(by_platform)}개 플랫폼, 총매출 {kpi_total['total_sales']:,}원")
+        # ── 추가: by_category / by_product ───────────────
+        dfs = [df for df in [offline, online]
+               if df is not None and not df.empty]
+        if dfs:
+            combined = pd.concat(dfs, ignore_index=True)
+            kpi_summary["by_category"] = _compute_by_category(combined)
+            kpi_summary["by_product"] = _compute_by_product(combined, top_n=20)
+            logger.info(
+                f"카테고리 집계: {len(kpi_summary['by_category'])}개 소분류 / "
+                f"제품 집계: {len(kpi_summary['by_product'])}개"
+            )
+
+        logger.info(
+            f"KPI 집계 완료: {len(by_platform)}개 플랫폼, "
+            f"총매출 {kpi_total['total_sales']:,}원"
+        )
+
     except Exception as e:
         logger.warning(f"KPI 집계 실패: {e}")
         errors.append(f"KPI 집계 실패: {e}")

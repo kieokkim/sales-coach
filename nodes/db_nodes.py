@@ -21,6 +21,8 @@ def db_save_node(state: dict) -> dict:
         records = state.get("kpi_summary", {}).get("by_platform", [])
         created_at = datetime.now().isoformat()
 
+        by_product = state.get("kpi_summary", {}).get("by_product", [])
+
         with get_db() as conn:
             for rec in records:
                 cursor = conn.execute(
@@ -50,6 +52,27 @@ def db_save_node(state: dict) -> dict:
                     db_saved_count += 1
                 else:
                     db_skipped_count += 1
+
+            for prod in by_product:
+                conn.execute(
+                    """INSERT OR IGNORE INTO daily_product
+                       (report_date, product_code, product_name,
+                        category_l1, category_l2, category_l3,
+                        qty, revenue, zre_qty)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        report_date,
+                        prod["product_code"],
+                        prod["product_name"],
+                        "",
+                        "",
+                        prod.get("category_l3", ""),
+                        prod["qty"],
+                        prod["total_sales"],
+                        prod["zre_qty"],
+                    ),
+                )
+
             conn.commit()
 
         logger.info(f"DB 저장: {db_saved_count}건 신규, {db_skipped_count}건 스킵")
@@ -88,10 +111,34 @@ def db_load_cumulative_node(state: dict) -> dict:
             )
             rows = cursor.fetchall()
             cols = [d[0] for d in cursor.description]
+            by_platform = [dict(zip(cols, row)) for row in rows]
 
-        by_platform = [dict(zip(cols, row)) for row in rows]
-        kpi_cumulative = {"by_platform": by_platform, "month": year_month}
-        logger.info(f"DB 누계 로드: {year_month}, {len(by_platform)}개 플랫폼")
+            prod_cursor = conn.execute(
+                """
+                SELECT product_code, product_name, category_l3,
+                       SUM(qty) as total_qty,
+                       SUM(revenue) as total_revenue,
+                       SUM(zre_qty) as total_zre
+                FROM daily_product
+                WHERE report_date >= date('now', '-30 days')
+                GROUP BY product_code
+                ORDER BY total_revenue DESC
+                LIMIT 30
+                """
+            )
+            prod_rows = prod_cursor.fetchall()
+            prod_cols = [d[0] for d in prod_cursor.description]
+            top_products_30d = [dict(zip(prod_cols, r)) for r in prod_rows]
+
+        kpi_cumulative = {
+            "by_platform": by_platform,
+            "month": year_month,
+            "top_products_30d": top_products_30d,
+        }
+        logger.info(
+            f"DB 누계 로드: {year_month}, {len(by_platform)}개 플랫폼, "
+            f"30일 제품 {len(top_products_30d)}개"
+        )
     except Exception as e:
         logger.warning(f"DB 누계 로드 실패: {e}")
         errors.append(f"DB 누계 로드 실패: {e}")

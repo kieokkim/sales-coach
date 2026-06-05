@@ -4,6 +4,9 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from dotenv import load_dotenv
 
 from utils.styles import inject_global_css, render_sidebar_brand
@@ -37,6 +40,26 @@ anomalies = state.get("anomalies", [])
 db_skipped_count = state.get("db_skipped_count", 0)
 
 OFFLINE_PLATFORMS = {"HCC", "HCC 부산점", "HCC 제주점"}
+
+
+def _prepare_time_series(offline_df, online_df):
+    dfs = []
+    if offline_df is not None and not getattr(offline_df, "empty", True):
+        df = offline_df[offline_df["오더유형"] == "ZOR"].copy()
+        df["채널"] = "오프라인"
+        dfs.append(df)
+    if online_df is not None and not getattr(online_df, "empty", True):
+        df = online_df[online_df["오더유형"] == "ZOR"].copy()
+        df["채널"] = "온라인"
+        dfs.append(df)
+    if not dfs:
+        return None
+    combined = pd.concat(dfs, ignore_index=True)
+    combined["판매일자"] = pd.to_datetime(combined["판매일자"], format="%Y%m%d", errors="coerce")
+    combined = combined.dropna(subset=["판매일자"])
+    combined["주"] = combined["판매일자"].dt.to_period("W").dt.start_time
+    combined["월"] = combined["판매일자"].dt.to_period("M").dt.start_time
+    return combined
 
 
 def get_channel(platform: str) -> str:
@@ -296,6 +319,7 @@ if anomalies:
     tab_labels.append("⚠️ 이상치")
 if state.get("llm_commentary"):
     tab_labels.append("🤖 AI 코멘터리")
+tab_labels.append("📈 매출 추이")
 tab_labels.append("📥 다운로드")
 
 tabs = st.tabs(tab_labels)
@@ -408,6 +432,92 @@ if anomalies:
 # AI 코멘터리
 if state.get("llm_commentary"):
     with tabs[tab_idx]:
+        # ── 인사이트 카드 3개 ─────────────────────────────────────────
+        _insights = state.get("insights", {})
+        _patterns = state.get("patterns", {})
+        _actions = state.get("actions", [])
+        _fc = _patterns.get("forecast", {})
+
+        _card_style = (
+            "background:#1a1a2e;border-radius:8px;padding:16px 18px;"
+            "min-height:140px;height:100%;box-sizing:border-box;"
+        )
+
+        # 카드 1: 핵심 이슈
+        _issue = _insights.get("top_issue") or "이상 징후 없음"
+        _reason = _insights.get("top_issue_reason", "")
+        _reason_html = f'<div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{_reason}</div>' if _reason else ""
+
+        # 카드 2: 월말 예측
+        _pct = _fc.get("forecast_achievement_pct", 0)
+        _fc_color = "#10b981" if _pct >= 90 else ("#3b82f6" if _pct >= 70 else "#f59e0b")
+        _fc_total = _fc.get("forecast_total", 0)
+        _fc_days = _fc.get("days_remaining", 0)
+        _fc_summary = _insights.get("forecast_summary", "")
+        _fc_sub = f"{_fc_total:,.0f}원 / 잔여 {_fc_days}일" if _fc else "데이터 없음"
+        _fc_summary_html = f'<div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4;">{_fc_summary}</div>' if _fc_summary else ""
+
+        # 카드 3: 오늘 할 일
+        _action_lines = []
+        for _a in _actions:
+            _t = _a.get("timing", "")
+            if "오늘" in _t:
+                _tag, _tag_color = "오늘", "#ef4444"
+            elif "주" in _t:
+                _tag, _tag_color = "이번 주", "#f59e0b"
+            elif "달" in _t:
+                _tag, _tag_color = "이번 달", "#3b82f6"
+            else:
+                continue
+            _owner = _a.get("owner", "")
+            _act = _a.get("action", "")
+            _action_lines.append(
+                f'<div style="margin-bottom:8px;">'
+                f'<span style="font-size:10px;background:{_tag_color}22;color:{_tag_color};'
+                f'padding:2px 6px;border-radius:4px;font-weight:600;">{_tag}</span> '
+                f'<span style="font-size:11px;color:#718096;">{_owner}</span><br>'
+                f'<span style="font-size:12px;color:#cbd5e0;">{_act}</span>'
+                f'</div>'
+            )
+        _actions_html = "".join(_action_lines) if _action_lines else '<div style="font-size:12px;color:#4a5568;">액션 없음</div>'
+
+        _col1, _col2, _col3 = st.columns(3)
+        with _col1:
+            st.markdown(f"""
+            <div style="{_card_style}border-left:4px solid #ef4444;">
+              <div style="font-size:11px;color:#ef4444;font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
+                🚨 오늘의 핵심 이슈
+              </div>
+              <div style="font-size:13px;color:#e2e8f0;font-weight:500;line-height:1.5;">{_issue}</div>
+              {_reason_html}
+            </div>
+            """, unsafe_allow_html=True)
+
+        with _col2:
+            st.markdown(f"""
+            <div style="{_card_style}border-left:4px solid {_fc_color};">
+              <div style="font-size:11px;color:{_fc_color};font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
+                📈 월말 예측
+              </div>
+              <div style="font-size:28px;font-weight:700;color:{_fc_color};">{_pct}%</div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:4px;">{_fc_sub}</div>
+              {_fc_summary_html}
+            </div>
+            """, unsafe_allow_html=True)
+
+        with _col3:
+            st.markdown(f"""
+            <div style="{_card_style}border-left:4px solid #10b981;">
+              <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
+                ✅ 오늘 할 일
+              </div>
+              {_actions_html}
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+
+        # ── AI 코멘터리 텍스트 ────────────────────────────────────────
         st.markdown(f"""
         <div style="background:#1e1e2e; border-left:3px solid #10b981;
                     border-radius:0 12px 12px 0; padding:20px 24px; margin-top:8px;">
@@ -419,6 +529,108 @@ if state.get("llm_commentary"):
         </div>
         """, unsafe_allow_html=True)
     tab_idx += 1
+
+# 매출 추이
+with tabs[tab_idx]:
+    offline_proc = state.get("offline_processed")
+    online_proc = state.get("online_processed")
+    ts = _prepare_time_series(offline_proc, online_proc)
+
+    if ts is None or ts.empty:
+        st.info("데이터를 먼저 로드해주세요.")
+    else:
+        _DARK_BG = "#16162a"
+        _PLOT_BG = "#1e1e2e"
+        _GRID = "rgba(128,128,128,0.2)"
+
+        # 차트 1: 채널별 매출 추이
+        st.markdown("**채널별 매출 추이**")
+        period_opt = st.radio("집계 단위", ["일별", "주별", "월별"], horizontal=True, key="ts_period")
+        period_col = {"일별": "판매일자", "주별": "주", "월별": "월"}[period_opt]
+
+        grp = ts.groupby([period_col, "채널"], as_index=False)["매출"].sum()
+        fig1 = px.line(
+            grp, x=period_col, y="매출", color="채널",
+            color_discrete_map={"오프라인": "#3b82f6", "온라인": "#10b981"},
+            template="plotly_dark",
+        )
+        fig1.update_layout(
+            paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
+            margin=dict(l=0, r=0, t=20, b=0),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        fig1.update_yaxes(showgrid=True, gridcolor=_GRID, tickformat=",")
+        fig1.update_xaxes(showgrid=False)
+        st.plotly_chart(fig1, use_container_width=True)
+
+        col_c1, col_c2 = st.columns(2)
+
+        # 차트 2: 플랫폼별 매출 비중
+        with col_c1:
+            st.markdown("**플랫폼별 매출 비중**")
+            if by_platform:
+                fig2 = px.pie(
+                    values=[r["total_sales"] for r in by_platform],
+                    names=[r["platform"] for r in by_platform],
+                    template="plotly_dark",
+                    color_discrete_sequence=["#3b82f6", "#60a5fa", "#93c5fd", "#10b981", "#34d399", "#6ee7b7"],
+                )
+                fig2.update_layout(paper_bgcolor=_DARK_BG, margin=dict(l=0, r=0, t=20, b=0))
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("플랫폼 데이터 없음")
+
+        # 차트 3: 중분류별 매출
+        with col_c2:
+            st.markdown("**중분류별 매출 TOP10**")
+            by_category = kpi_summary.get("by_category", [])
+            if by_category:
+                l2_map: dict = {}
+                for item in by_category:
+                    l2 = item["category_l2"]
+                    l2_map[l2] = l2_map.get(l2, 0) + item["total_sales"]
+                sorted_l2 = sorted(l2_map.items(), key=lambda x: x[1])[-10:]
+                fig3 = px.bar(
+                    x=[v for _, v in sorted_l2],
+                    y=[k for k, _ in sorted_l2],
+                    orientation="h",
+                    template="plotly_dark",
+                    color_discrete_sequence=["#3b82f6"],
+                )
+                fig3.update_layout(
+                    paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                )
+                fig3.update_xaxes(tickformat=",", showgrid=True, gridcolor=_GRID)
+                fig3.update_yaxes(showgrid=False)
+                st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("카테고리 데이터 없음")
+
+        # 차트 4: 제품 TOP10
+        st.markdown("**제품별 매출 TOP10**")
+        by_product = kpi_summary.get("by_product", [])
+        if by_product:
+            top10 = list(reversed(by_product[:10]))
+            fig4 = px.bar(
+                x=[p["total_sales"] for p in top10],
+                y=[p["product_name"] for p in top10],
+                orientation="h",
+                template="plotly_dark",
+                color_discrete_sequence=["#10b981"],
+            )
+            fig4.update_layout(
+                paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
+                margin=dict(l=0, r=0, t=20, b=0),
+                height=360,
+            )
+            fig4.update_xaxes(tickformat=",", showgrid=True, gridcolor=_GRID)
+            fig4.update_yaxes(showgrid=False)
+            st.plotly_chart(fig4, use_container_width=True)
+        else:
+            st.info("제품 데이터 없음")
+
+tab_idx += 1
 
 # 다운로드
 with tabs[tab_idx]:

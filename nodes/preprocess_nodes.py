@@ -10,7 +10,21 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-def _preprocess_offline(df: pd.DataFrame) -> pd.DataFrame:
+def _safe_col(df: pd.DataFrame, col: str) -> pd.Series:
+    if col in df.columns:
+        return df[col].fillna(0)
+    return pd.Series(0, index=df.index)
+
+
+def _normalize_date_col(series: pd.Series) -> pd.Series:
+    """판매일자 → YYYYMMDD 8자리 str. int/float/str 모두 처리."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().any():
+        return numeric.fillna(0).astype(int).astype(str).str.zfill(8)
+    return series.astype(str).str.strip().str.zfill(8)
+
+
+def _preprocess_offline(df: pd.DataFrame, report_date: str = "") -> pd.DataFrame:
     df = df.copy()
 
     drop_cols = [c for c in ["상태", "납품요청일자"] if c in df.columns]
@@ -33,20 +47,28 @@ def _preprocess_offline(df: pd.DataFrame) -> pd.DataFrame:
     df["대분류내역"] = df.apply(normalize_category, axis=1)
 
     # 봉사료 = 배송비 + 쇼핑백
-    df["봉사료"] = df.get("배송비", 0).fillna(0) + df.get("쇼핑백", 0).fillna(0)
+    df["봉사료"] = _safe_col(df, "배송비") + _safe_col(df, "쇼핑백")
 
-    # 판매일자: 고객 참조 번호 str[9:17]
-    # 예: 'ORD00000120250525HCC' → str[9:17] = '20250525'
-    df["판매일자"] = df["고객 참조 번호"].astype(str).str[9:17]
+    # 판매일자: 기존 컬럼 우선(int/float/str 모두 정규화), 없으면 참조번호에서 추출
+    if "판매일자" in df.columns and df["판매일자"].notna().any():
+        df["판매일자"] = _normalize_date_col(df["판매일자"])
+    else:
+        df["판매일자"] = df["고객 참조 번호"].astype(str).str[9:17]
 
     # 매출 컬럼 통일
     if "S/O sum" in df.columns:
         df = df.rename(columns={"S/O sum": "매출", "S/O수량": "수량"})
 
+    if report_date and "판매일자" in df.columns:
+        target = report_date.strip().replace("-", "")
+        df = df[df["판매일자"] == target]
+        if df.empty:
+            logger.warning(f"오프라인: report_date={report_date} 해당 행 없음")
+
     return df
 
 
-def _preprocess_online(df: pd.DataFrame) -> pd.DataFrame:
+def _preprocess_online(df: pd.DataFrame, report_date: str = "") -> pd.DataFrame:
     df = df.copy()
 
     drop_cols = [c for c in ["상태", "납품요청일자"] if c in df.columns]
@@ -66,10 +88,13 @@ def _preprocess_online(df: pd.DataFrame) -> pd.DataFrame:
 
     df["대분류내역"] = df.apply(normalize_category, axis=1)
 
-    df["봉사료"] = df.get("배송비", 0).fillna(0) + df.get("쇼핑백", 0).fillna(0)
+    df["봉사료"] = _safe_col(df, "배송비") + _safe_col(df, "쇼핑백")
 
-    # 온라인: 판매일자 = 청구일 컬럼
-    df["판매일자"] = df["청구일"].astype(str)
+    # 온라인: 판매일자 정규화 (청구일 또는 기존 판매일자 컬럼)
+    if "청구일" in df.columns:
+        df["판매일자"] = _normalize_date_col(df["청구일"])
+    elif "판매일자" in df.columns:
+        df["판매일자"] = _normalize_date_col(df["판매일자"])
 
     # 판매처명 그룹핑
     df["판매처명"] = df["판매처명"].map(ONLINE_PLATFORM_MAP).fillna(df["판매처명"])
@@ -78,6 +103,12 @@ def _preprocess_online(df: pd.DataFrame) -> pd.DataFrame:
     if "총금액" in df.columns:
         df = df.rename(columns={"총금액": "매출", "청구수량": "수량"})
 
+    if report_date and "판매일자" in df.columns:
+        target = report_date.strip().replace("-", "")
+        df = df[df["판매일자"] == target]
+        if df.empty:
+            logger.warning(f"온라인: report_date={report_date} 해당 행 없음")
+
     return df
 
 
@@ -85,11 +116,12 @@ def preprocess_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     offline_processed = pd.DataFrame()
     online_processed = pd.DataFrame()
+    report_date = state.get("report_date", "")
 
     offline_df = state.get("offline_df")
     if offline_df is not None and not offline_df.empty:
         try:
-            offline_processed = _preprocess_offline(offline_df)
+            offline_processed = _preprocess_offline(offline_df, report_date)
             logger.info(f"오프라인 전처리 완료: {len(offline_processed)}행")
         except Exception as e:
             logger.warning(f"오프라인 전처리 실패: {e}")
@@ -98,7 +130,7 @@ def preprocess_node(state: dict) -> dict:
     online_df = state.get("online_df")
     if online_df is not None and not online_df.empty:
         try:
-            online_processed = _preprocess_online(online_df)
+            online_processed = _preprocess_online(online_df, report_date)
             logger.info(f"온라인 전처리 완료: {len(online_processed)}행")
         except Exception as e:
             logger.warning(f"온라인 전처리 실패: {e}")

@@ -40,5 +40,20 @@ def init_db():
                 UNIQUE(year_month, platform)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_product (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_date TEXT NOT NULL,
+                product_code TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                category_l1 TEXT DEFAULT '',
+                category_l2 TEXT DEFAULT '',
+                category_l3 TEXT DEFAULT '',
+                qty INTEGER,
+                revenue REAL,
+                zre_qty INTEGER,
+                UNIQUE(report_date, product_code)
+            )
+        """)
         conn.commit()
     logger.info("DB 초기화 완료")
