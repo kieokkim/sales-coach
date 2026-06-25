@@ -17,27 +17,27 @@ FORBIDDEN_KEYWORDS = [
 
 def get_schema_context() -> str:
     return """
-[daily_kpi 테이블]
-- report_date (TEXT, YYYY-MM-DD): 리포트 기준일
-- channel (TEXT): 채널 구분
-- platform (TEXT): 플랫폼/매장명 (HCC, HCC 부산점, HCC 제주점, 메이크샵, 네이버(주)(스토어팜), 주식회사 카카오)
-- zor (INTEGER): 주문건수
-- zre (INTEGER): 반품건수
-- net_receipt (INTEGER): 순영수증 (ZOR-ZRE)
-- hcc_revenue (REAL): HCC 매출
-- helinox_revenue (REAL): 헬리녹스 매출
-- total_revenue (REAL): 매출
-- total_point (REAL): 포인트
-- total_fee (REAL): 봉사료
+[daily_kpi 테이블] — 채널/플랫폼별 일일 KPI (날짜당 여러 행 존재)
+- report_date (TEXT, YYYY-MM-DD)
+- platform (TEXT): HCC, HCC 부산점, HCC 제주점, 메이크샵, 네이버(주)(스토어팜), 주식회사 카카오
+- net_receipt, total_revenue, total_point, total_fee (REAL/INTEGER)
 
-[daily_product 테이블]
-- report_date (TEXT, YYYY-MM-DD): 리포트 기준일
-- product_code (TEXT): 제품코드
-- product_name (TEXT): 제품명
-- category_l1, category_l2, category_l3 (TEXT): 대/중/소분류
-- qty (INTEGER): 판매수량
-- revenue (REAL): 매출
-- zre_qty (INTEGER): 반품건수
+[daily_product 테이블] — 제품별 일일 판매/반품 (날짜당 제품 수만큼 행 존재)
+- report_date (TEXT, YYYY-MM-DD)
+- product_code, product_name (TEXT)
+- category_l1, category_l2, category_l3 (TEXT)
+- qty (판매수량), revenue (매출), zre_qty (반품건수)
+
+중요 규칙:
+1. 두 테이블 모두 날짜당 여러 행이 존재합니다 (플랫폼별/제품별로 행이 나뉨).
+   "전체 매출", "총 반품" 등 합계를 묻는 질문에는 반드시 SUM()을 사용하세요.
+   SUM() 없이 조회하면 한 행만 반환되어 틀린 값이 됩니다.
+2. 제품명(예: V.TARP, V.TAP)이 질문에 나오면 daily_product 테이블을 사용하세요.
+   daily_kpi의 platform 컬럼에는 제품명이 들어가지 않습니다.
+3. 반품 건수 컬럼명은 정확히 zre_qty 입니다 (zre가 아님).
+4. 제품명은 LIKE로 부분 일치 검색하세요 (예: WHERE product_name LIKE '%V.TARP%').
+   정확히 일치하는 표기를 모를 수 있기 때문입니다.
+5. "이번달" 같은 기간 질문은 report_date LIKE 'YYYY-MM%' 형식을 사용하세요.
 """
 
 
@@ -75,7 +75,14 @@ def generate_sql(question: str, report_date: str) -> str:
         "- SELECT 쿼리만 작성하세요\n"
         "- 반드시 SQL만 출력하세요 (설명, 마크다운 코드블록 없이)\n"
         f"- '오늘', '이번달' 등은 기준일 {report_date}(YYYY-MM-DD)를 기준으로 해석하세요\n"
-        "- 날짜 비교는 report_date 컬럼 사용\n"
+        "- 날짜 비교는 report_date 컬럼 사용\n\n"
+        "예시:\n"
+        "Q: 오늘 전체 매출 얼마야?\n"
+        f"A: SELECT SUM(total_revenue) as total_revenue FROM daily_kpi WHERE report_date = '{report_date}'\n\n"
+        "Q: 이번달 V.TARP 판매량은?\n"
+        f"A: SELECT SUM(qty) as total_qty FROM daily_product WHERE report_date LIKE '{report_date[:7]}%' AND product_name LIKE '%V.TARP%'\n\n"
+        "Q: 이번달 반품 건수는?\n"
+        f"A: SELECT SUM(zre_qty) as total_zre FROM daily_product WHERE report_date LIKE '{report_date[:7]}%'\n"
     )
 
     from langchain_openai import ChatOpenAI
