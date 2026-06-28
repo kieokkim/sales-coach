@@ -14,7 +14,10 @@ _SYSTEM_PROMPT = (
     "- 오늘 수치가 7일 평균보다 30% 이상 높으면 이유를 추론하세요\n"
     "- 반품률이 평균의 3배 이상이면 품질/CS 이슈로 분류하세요\n"
     "- 월말 예측 달성률이 80% 미만이면 위험 신호로 분류하세요\n"
-    "- 특정 카테고리 집중도가 50% 초과면 편중 리스크로 분류하세요\n\n"
+    "- 특정 카테고리 집중도가 50% 초과면 편중 리스크로 분류하세요\n"
+    "- 교차구매 비율이 30% 이상이면 브랜드 시너지 기회로 분류하세요\n"
+    "- 특정 요일이 30일 평균보다 현저히 다르면 요일 패턴 이슈로 분류하세요\n"
+    "- 장바구니 연관 신뢰도가 20% 이상인 조합은 묶음 프로모션 기회로 분류하세요\n\n"
     "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 코드블록 없이):\n"
     "{\n"
     '  "top_issue": "가장 시급한 이슈 한 문장 (구체적 수치 포함)",\n'
@@ -144,6 +147,57 @@ def _build_insight_context(state: dict) -> str:
             f"[진행중 프로모션] {promo.get('name')}: "
             f"매출 리프트 {promo.get('sales_lift_pct', 0):+.1f}%"
         )
+        lines.append("")
+
+    # 동시구매 패턴
+    combo = patterns.get("purchase_combo", {})
+    if combo:
+        lines.append("[동시구매 패턴]")
+        lines.append(
+            f"  전체 거래 {combo.get('total_orders', 0)}건 중 "
+            f"교차구매(Helinox+HCC) {combo.get('cross_brand_orders', 0)}건 "
+            f"({combo.get('cross_brand_pct', 0)}%)"
+        )
+        for c in combo.get("top_category_combos", [])[:3]:
+            lines.append(f"  자주 같이 사는 조합: {c['pair']} ({c['count']}건)")
+        lines.append("")
+
+    # 채널별 구매 행동
+    basket = patterns.get("basket_metrics", {})
+    if basket:
+        lines.append("[채널별 구매 행동]")
+        for channel, m in basket.items():
+            lines.append(
+                f"  {channel}: 거래당 평균 {m.get('avg_items_per_order', 0)}개 "
+                f"/ {m.get('avg_amount_per_order', 0):,}원"
+            )
+        lines.append("")
+
+    # 요일 패턴
+    time_p = patterns.get("time_pattern", {})
+    if time_p:
+        lines.append("[요일 패턴]")
+        lines.append(
+            f"  오늘은 {time_p.get('today_weekday', '')}요일 "
+            f"({'주말' if time_p.get('is_weekend') else '평일'})"
+        )
+        if time_p.get("today_weekday_avg"):
+            lines.append(
+                f"  {time_p.get('today_weekday', '')}요일 30일 평균: "
+                f"{time_p.get('today_weekday_avg', 0):,}원"
+            )
+        lines.append("")
+
+    # 장바구니 연관 분석
+    assoc = patterns.get("basket_association", [])
+    if assoc:
+        lines.append("[장바구니 연관 분석]")
+        for a in assoc[:3]:
+            lines.append(
+                f"  {a['item_a']} → {a['item_b']}: "
+                f"동시구매 {a['co_occur_count']}건 "
+                f"(신뢰도 {a['confidence']:.1%})"
+            )
         lines.append("")
 
     # 이상치

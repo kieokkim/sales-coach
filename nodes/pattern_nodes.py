@@ -1,6 +1,9 @@
 import logging
 from calendar import monthrange
 from datetime import datetime, timedelta
+from itertools import combinations
+
+import pandas as pd
 
 from config import MONTHLY_TARGETS, PROMOTIONS
 from db import get_db
@@ -243,6 +246,201 @@ def _promo_effect(state: dict, report_date_raw: str) -> dict:
         return {"active": True, "name": promo["name"], "sales_lift_pct": 0.0, "return_lift_pct": 0.0}
 
 
+def _purchase_combo(state: dict) -> dict:
+    offline = state.get("offline_processed")
+    online = state.get("online_processed")
+
+    dfs = []
+    if offline is not None and not offline.empty:
+        df = offline[offline["오더유형"] == "ZOR"].copy()
+        df["거래키"] = df["고객 참조 번호"]
+        dfs.append(df)
+    if online is not None and not online.empty:
+        df = online[online["오더유형"] == "ZOR"].copy()
+        df["거래키"] = df["고객참조번호"]
+        dfs.append(df)
+
+    if not dfs:
+        return {}
+
+    combined = pd.concat(dfs, ignore_index=True)
+    if combined.empty or "대분류내역" not in combined.columns:
+        return {}
+
+    try:
+        brand_sets = combined.groupby("거래키")["대분류내역"].apply(lambda x: set(x))
+        total_orders = len(brand_sets)
+        if total_orders == 0:
+            return {}
+
+        cross_orders = brand_sets.apply(
+            lambda s: "Helinox" in s and "HCC" in s
+        ).sum()
+        cross_pct = round(cross_orders / total_orders * 100, 1)
+
+        combo_counter: dict = {}
+        if "중분류내역" in combined.columns:
+            cat_sets = combined.groupby("거래키")["중분류내역"].apply(
+                lambda x: sorted(set(x))
+            )
+            for cats in cat_sets:
+                for pair in combinations(cats, 2):
+                    combo_counter[pair] = combo_counter.get(pair, 0) + 1
+
+        top_combos = sorted(combo_counter.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        return {
+            "total_orders": total_orders,
+            "cross_brand_orders": int(cross_orders),
+            "cross_brand_pct": cross_pct,
+            "top_category_combos": [
+                {"pair": f"{p[0]} + {p[1]}", "count": c}
+                for p, c in top_combos
+            ],
+        }
+    except Exception as e:
+        logger.warning(f"_purchase_combo 실패: {e}")
+        return {}
+
+
+def _basket_metrics(state: dict) -> dict:
+    offline = state.get("offline_processed")
+    online = state.get("online_processed")
+
+    result = {}
+
+    try:
+        for name, df, ref_col in [
+            ("오프라인", offline, "고객 참조 번호"),
+            ("온라인", online, "고객참조번호"),
+        ]:
+            if df is None or df.empty:
+                continue
+            zor = df[df["오더유형"] == "ZOR"]
+            if zor.empty or ref_col not in zor.columns or "매출" not in zor.columns:
+                continue
+
+            grouped = zor.groupby(ref_col).agg(
+                item_count=("매출", "count"),
+                total_amount=("매출", "sum"),
+            )
+
+            result[name] = {
+                "order_count": len(grouped),
+                "avg_items_per_order": round(grouped["item_count"].mean(), 1),
+                "avg_amount_per_order": round(grouped["total_amount"].mean()),
+            }
+
+        return result
+    except Exception as e:
+        logger.warning(f"_basket_metrics 실패: {e}")
+        return {}
+
+
+def _time_pattern(state: dict, report_date_db: str) -> dict:
+    try:
+        d = datetime.strptime(report_date_db, "%Y-%m-%d")
+        weekday_idx = d.weekday()
+        weekday_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_idx]
+        is_weekend = weekday_idx >= 5
+
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT report_date, SUM(total_revenue) as daily_total
+                FROM daily_kpi
+                WHERE report_date >= date(?, '-30 days') AND report_date < ?
+                GROUP BY report_date
+                """,
+                (report_date_db, report_date_db),
+            ).fetchall()
+
+        if not rows:
+            return {"today_weekday": weekday_name, "is_weekend": is_weekend}
+
+        weekday_totals: dict = {}
+        for r in rows:
+            rd = datetime.strptime(r[0], "%Y-%m-%d")
+            wd = ["월", "화", "수", "목", "금", "토", "일"][rd.weekday()]
+            weekday_totals.setdefault(wd, []).append(r[1])
+
+        weekday_avg = {
+            wd: round(sum(vals) / len(vals))
+            for wd, vals in weekday_totals.items()
+        }
+
+        return {
+            "today_weekday": weekday_name,
+            "is_weekend": is_weekend,
+            "weekday_avg_30d": weekday_avg,
+            "today_weekday_avg": weekday_avg.get(weekday_name, 0),
+        }
+    except Exception as e:
+        logger.warning(f"_time_pattern 실패: {e}")
+        return {}
+
+
+def _basket_association(state: dict) -> list:
+    offline = state.get("offline_processed")
+    online = state.get("online_processed")
+
+    dfs = []
+    if offline is not None and not offline.empty:
+        df = offline[offline["오더유형"] == "ZOR"].copy()
+        df["거래키"] = df["고객 참조 번호"]
+        dfs.append(df)
+    if online is not None and not online.empty:
+        df = online[online["오더유형"] == "ZOR"].copy()
+        df["거래키"] = df["고객참조번호"]
+        dfs.append(df)
+
+    if not dfs:
+        return []
+
+    try:
+        combined = pd.concat(dfs, ignore_index=True)
+        if combined.empty or "제품명" not in combined.columns:
+            return []
+
+        baskets = combined.groupby("거래키")["제품명"].apply(
+            lambda x: sorted(set(x))
+        )
+        total_baskets = len(baskets)
+        if total_baskets == 0:
+            return []
+
+        item_count: dict = {}
+        pair_count: dict = {}
+
+        for items in baskets:
+            if len(items) > 5:
+                items = items[:5]
+            for item in items:
+                item_count[item] = item_count.get(item, 0) + 1
+            for pair in combinations(items, 2):
+                pair_count[pair] = pair_count.get(pair, 0) + 1
+
+        results = []
+        for (a, b), count in pair_count.items():
+            if count < 2:
+                continue
+            support = round(count / total_baskets, 3)
+            confidence_a_to_b = round(count / item_count[a], 3) if item_count.get(a) else 0
+            results.append({
+                "item_a": a,
+                "item_b": b,
+                "co_occur_count": count,
+                "support": support,
+                "confidence": confidence_a_to_b,
+            })
+
+        results.sort(key=lambda x: x["confidence"], reverse=True)
+        return results[:5]
+    except Exception as e:
+        logger.warning(f"_basket_association 실패: {e}")
+        return []
+
+
 def pattern_detect_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     patterns: dict = {
@@ -251,6 +449,10 @@ def pattern_detect_node(state: dict) -> dict:
         "return_anomalies": [],
         "forecast": {},
         "promo_effect": {},
+        "purchase_combo": {},
+        "basket_metrics": {},
+        "time_pattern": {},
+        "basket_association": [],
     }
 
     report_date_raw = state.get("report_date", "")
@@ -285,9 +487,30 @@ def pattern_detect_node(state: dict) -> dict:
     except Exception as e:
         logger.warning(f"promo_effect 실패: {e}")
 
+    try:
+        patterns["purchase_combo"] = _purchase_combo(state)
+    except Exception as e:
+        logger.warning(f"purchase_combo 실패: {e}")
+
+    try:
+        patterns["basket_metrics"] = _basket_metrics(state)
+    except Exception as e:
+        logger.warning(f"basket_metrics 실패: {e}")
+
+    try:
+        patterns["time_pattern"] = _time_pattern(state, report_date_db)
+    except Exception as e:
+        logger.warning(f"time_pattern 실패: {e}")
+
+    try:
+        patterns["basket_association"] = _basket_association(state)
+    except Exception as e:
+        logger.warning(f"basket_association 실패: {e}")
+
     logger.info(
         f"pattern_detect 완료: forecast={bool(patterns['forecast'])}, "
         f"return_anomalies={len(patterns['return_anomalies'])}건, "
-        f"category_movers={len(patterns['category_movers'])}건"
+        f"category_movers={len(patterns['category_movers'])}건, "
+        f"basket_association={len(patterns['basket_association'])}건"
     )
     return {**state, "patterns": patterns}
