@@ -17,7 +17,9 @@ _SYSTEM_PROMPT = (
     "- 특정 카테고리 집중도가 50% 초과면 편중 리스크로 분류하세요\n"
     "- 교차구매 비율이 30% 이상이면 브랜드 시너지 기회로 분류하세요\n"
     "- 특정 요일이 30일 평균보다 현저히 다르면 요일 패턴 이슈로 분류하세요\n"
-    "- 장바구니 연관 신뢰도가 20% 이상인 조합은 묶음 프로모션 기회로 분류하세요\n\n"
+    "- 장바구니 연관 신뢰도가 20% 이상인 조합은 묶음 프로모션 기회로 분류하세요\n"
+    "- 전체 마진율이 30% 미만이면 수익성 위험으로 분류하세요\n"
+    "- 할인율 15% 이상이면서 마진율도 낮은 제품은 즉시 검토 대상으로 지적하세요\n\n"
     "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 코드블록 없이):\n"
     "{\n"
     '  "top_issue": "가장 시급한 이슈 한 문장 (구체적 수치 포함)",\n'
@@ -209,6 +211,29 @@ def _build_insight_context(state: dict) -> str:
             )
         lines.append("")
     
+    # 할인율 + 마진 현황
+    discount = patterns.get("discount_sensitivity", {})
+    if discount.get("bucket_summary"):
+        lines.append("[할인율별 판매 + 마진 현황]")
+        lines.append(
+            f"  오늘 전체 마진율: {discount.get('margin_pct_overall', 0)}% "
+            f"(마진 총액 {discount.get('total_margin', 0):,}원)"
+        )
+        for bucket, m in discount["bucket_summary"].items():
+            lines.append(
+                f"  할인 {bucket}: 제품 {m['product_count']}개, "
+                f"평균 판매량 {m['avg_qty']}개"
+            )
+        top = discount.get("top_discounted", [])
+        if top:
+            lines.append("  최대 할인 제품 TOP3 (마진율 포함):")
+            for t in top[:3]:
+                lines.append(
+                    f"    {t['product_name']}: {t['discount_pct']}% 할인, "
+                    f"마진율 {t['margin_pct']}%, {t['qty']}개 판매"
+                )
+        lines.append("")
+
     # by_product에서 반품 전용 항목 분리
     by_product = kpi_summary.get("by_product", [])
     return_only = [p for p in by_product if p["total_sales"] == 0 and p["zre_qty"] > 0]

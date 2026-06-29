@@ -55,5 +55,16 @@ def init_db():
                 UNIQUE(report_date, product_code)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS product_master (
+                product_code TEXT PRIMARY KEY,
+                product_name TEXT NOT NULL,
+                category_l1 TEXT,
+                category_l2 TEXT,
+                category_l3 TEXT,
+                list_price INTEGER NOT NULL,
+                cost_price INTEGER NOT NULL
+            )
+        """)
         conn.commit()
     logger.info("DB 초기화 완료")

@@ -441,6 +441,91 @@ def _basket_association(state: dict) -> list:
         return []
 
 
+def _discount_sensitivity(state: dict) -> dict:
+    by_product = state.get("kpi_summary", {}).get("by_product", [])
+    if not by_product:
+        return {}
+
+    try:
+        with get_db() as conn:
+            master_rows = conn.execute(
+                "SELECT product_code, list_price, cost_price FROM product_master"
+            ).fetchall()
+        price_map = {r[0]: {"list_price": r[1], "cost_price": r[2]} for r in master_rows}
+
+        if not price_map:
+            logger.warning("discount_sensitivity: product_master 비어있음")
+            return {}
+
+        discount_buckets: dict = {}
+        product_discounts = []
+        total_margin = 0
+        total_revenue = 0
+
+        for prod in by_product:
+            code = prod["product_code"]
+            qty = prod["qty"]
+            revenue = prod["total_sales"]
+
+            info = price_map.get(code)
+            if not info or qty == 0:
+                continue
+
+            list_price = info["list_price"]
+            cost_price = info["cost_price"]
+
+            avg_sell_price = revenue / qty
+            discount_pct = round((1 - avg_sell_price / list_price) * 100, 1)
+            discount_pct = max(0, discount_pct)
+
+            margin_per_unit = avg_sell_price - cost_price
+            margin_total = round(margin_per_unit * qty)
+            margin_pct = round(margin_per_unit / avg_sell_price * 100, 1) if avg_sell_price else 0
+
+            total_margin += margin_total
+            total_revenue += revenue
+
+            bucket = (
+                "0%" if discount_pct < 2 else
+                "5%" if discount_pct < 8 else
+                "10%" if discount_pct < 13 else
+                "15%+"
+            )
+            discount_buckets.setdefault(bucket, []).append(qty)
+
+            product_discounts.append({
+                "product_name": prod["product_name"],
+                "discount_pct": discount_pct,
+                "qty": qty,
+                "revenue": revenue,
+                "margin_total": margin_total,
+                "margin_pct": margin_pct,
+            })
+
+        bucket_summary = {
+            bucket: {
+                "product_count": len(qtys),
+                "avg_qty": round(sum(qtys) / len(qtys), 1),
+                "total_qty": sum(qtys),
+            }
+            for bucket, qtys in discount_buckets.items()
+        }
+
+        product_discounts.sort(key=lambda x: x["discount_pct"], reverse=True)
+        margin_pct_overall = round(total_margin / total_revenue * 100, 1) if total_revenue else 0
+
+        return {
+            "bucket_summary": bucket_summary,
+            "top_discounted": product_discounts[:5],
+            "total_margin": total_margin,
+            "total_revenue": total_revenue,
+            "margin_pct_overall": margin_pct_overall,
+        }
+    except Exception as e:
+        logger.warning(f"_discount_sensitivity 실패: {e}")
+        return {}
+
+
 def pattern_detect_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     patterns: dict = {
@@ -453,6 +538,7 @@ def pattern_detect_node(state: dict) -> dict:
         "basket_metrics": {},
         "time_pattern": {},
         "basket_association": [],
+        "discount_sensitivity": {},
     }
 
     report_date_raw = state.get("report_date", "")
@@ -507,10 +593,16 @@ def pattern_detect_node(state: dict) -> dict:
     except Exception as e:
         logger.warning(f"basket_association 실패: {e}")
 
+    try:
+        patterns["discount_sensitivity"] = _discount_sensitivity(state)
+    except Exception as e:
+        logger.warning(f"discount_sensitivity 실패: {e}")
+
     logger.info(
         f"pattern_detect 완료: forecast={bool(patterns['forecast'])}, "
         f"return_anomalies={len(patterns['return_anomalies'])}건, "
         f"category_movers={len(patterns['category_movers'])}건, "
-        f"basket_association={len(patterns['basket_association'])}건"
+        f"basket_association={len(patterns['basket_association'])}건, "
+        f"discount_sensitivity={bool(patterns['discount_sensitivity'])}"
     )
     return {**state, "patterns": patterns}

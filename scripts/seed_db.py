@@ -28,8 +28,39 @@ OFFLINE_FILE = os.path.join(DATA_DIR, "sample_offline_3months.xlsx")
 ONLINE_FILE = os.path.join(DATA_DIR, "sample_online_3months.xlsx")
 
 
+def seed_product_master():
+    master_path = os.path.join(DATA_DIR, "product_master.xlsx")
+    master_df = pd.read_excel(master_path)
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM product_master"
+        ).fetchone()[0]
+        if existing > 0:
+            print(f"product_master 이미 적재됨 ({existing}건), 스킵")
+            return
+
+        count = 0
+        for _, row in master_df.iterrows():
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO product_master
+                       (product_code, product_name, category_l1,
+                        category_l2, category_l3, list_price, cost_price)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (row["제품코드"], row["제품명"], row["대분류내역"],
+                     row["중분류내역"], row["소분류내역"],
+                     int(row["단가"]), int(row["원가"]))
+                )
+                count += 1
+            except Exception as e:
+                print(f"제품 적재 실패: {row.get('제품코드', '?')} - {e}")
+        print(f"product_master: {count}건 적재")
+
+
 def seed():
     init_db()
+    seed_product_master()
 
     print("파일 로드 중...")
     offline_raw = pd.read_excel(OFFLINE_FILE)
