@@ -38,6 +38,12 @@ def get_schema_context() -> str:
 4. 제품명은 LIKE로 부분 일치 검색하세요 (예: WHERE product_name LIKE '%V.TARP%').
    정확히 일치하는 표기를 모를 수 있기 때문입니다.
 5. "이번달" 같은 기간 질문은 report_date LIKE 'YYYY-MM%' 형식을 사용하세요.
+6. daily_product, daily_kpi 테이블은 모두 "날짜별 집계" 테이블입니다.
+   거래(영수증) 단위 정보가 없으므로 아래 질문에는 SQL로 답할 수 없습니다:
+   - "A를 사는 사람이 같이 사는 제품은?" (장바구니/연관구매)
+   - "오늘 어떤 조합으로 많이 샀어?" (동시구매 패턴)
+   - 특정 고객의 구매 이력 (고객 식별자 없음)
+   이런 질문이 들어오면 SQL 대신 정확히 "NO_QUERY_POSSIBLE"라고만 응답하세요.
 """
 
 
@@ -95,6 +101,10 @@ def generate_sql(question: str, report_date: str) -> str:
     ])
     sql = response.content.strip()
     sql = sql.removeprefix("```sql").removeprefix("```").removesuffix("```").strip()
+
+    if sql == "NO_QUERY_POSSIBLE":
+        return "NO_QUERY_POSSIBLE"
+
     return sql
 
 
@@ -154,6 +164,14 @@ def answer_question(question: str, report_date: str) -> dict:
         sql = generate_sql(question, report_date)
         if not sql:
             result["error"] = "OPENAI_API_KEY가 설정되지 않았습니다."
+            return result
+
+        if sql == "NO_QUERY_POSSIBLE":
+            result["answer"] = (
+                "이 질문은 현재 저장된 데이터로는 답하기 어렵습니다. "
+                "장바구니/연관구매 분석은 일일 리포트의 인사이트 카드에서 "
+                "별도로 제공되고 있습니다 (거래 단위 원본 데이터가 DB에 저장되지 않음)."
+            )
             return result
 
         valid, validated_sql = sql_guard(sql)
