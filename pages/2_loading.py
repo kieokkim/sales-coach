@@ -25,38 +25,38 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-progress_bar = st.progress(0, text="파이프라인 시작...")
 
-STEP_LABELS = [
-    ("📂", "파일 로드"),
-    ("🔧", "데이터 전처리"),
-    ("📈", "KPI 집계"),
-    ("💾", "DB 저장"),
-    ("📊", "월 누계 조회"),
-    ("🎯", "타겟 달성률 계산"),
-    ("🔍", "이상치 탐지"),
-    ("🤖", "AI 코멘터리 생성"),
-    ("📄", "리포트 생성"),
-    ("📧", "이메일 발송"),
-]
+def build_steps(output_options: list, has_recipients: bool) -> list:
+    """선택된 옵션에 따라 표시할 단계 목록 구성. (icon, label, pct) 튜플 리스트."""
+    steps = [
+        ("📂", "파일 로드", 10),
+        ("🔧", "데이터 전처리", 20),
+        ("📈", "KPI 집계", 35),
+        ("💾", "DB 저장", 48),
+        ("📊", "월 누계 조회", 55),
+        ("🎯", "타겟 달성률 계산", 65),
+        ("🔍", "이상치 탐지", 75),
+        ("🤖", "AI 코멘터리 생성", 85),
+    ]
 
-STEPS = [
-    (10, "파일 로드"),
-    (20, "데이터 전처리"),
-    (35, "KPI 집계"),
-    (48, "DB 저장"),
-    (55, "월 누계 조회"),
-    (65, "타겟 달성률 계산"),
-    (75, "이상치 탐지"),
-    (85, "AI 코멘터리 생성"),
-    (93, "리포트 생성"),
-    (99, "이메일 발송 처리"),
-]
+    if "html" in output_options and "excel" in output_options:
+        steps.append(("📄", "리포트 생성 (HTML+Excel)", 93))
+    elif "html" in output_options:
+        steps.append(("📄", "HTML 리포트 생성", 93))
+    elif "excel" in output_options:
+        steps.append(("📄", "Excel 리포트 생성", 93))
+    else:
+        steps.append(("📄", "리포트 생성", 93))
+
+    if has_recipients:
+        steps.append(("📧", "이메일 발송", 99))
+
+    return steps
 
 
-def render_steps(current_idx: int) -> str:
+def render_steps(current_idx: int, steps: list) -> str:
     html = '<div style="max-width:480px; margin:24px auto;">'
-    for i, (icon, label) in enumerate(STEP_LABELS):
+    for i, (icon, label, _pct) in enumerate(steps):
         if i < current_idx:
             color = "#10b981"
             status = "✅"
@@ -78,13 +78,18 @@ def render_steps(current_idx: int) -> str:
     return html
 
 
+config = st.session_state["run_config"]
+output_options = config.get("output_options", [])
+has_recipients = bool(config.get("recipient_emails", []))
+current_steps = build_steps(output_options, has_recipients)
+
+progress_bar = st.progress(0, text="파이프라인 시작...")
 steps_placeholder = st.empty()
 
 try:
     from graph import build_graph
     import threading
 
-    config = st.session_state["run_config"]
     app = build_graph()
 
     result_container = {}
@@ -101,10 +106,10 @@ try:
 
     step_idx = 0
     while thread.is_alive():
-        if step_idx < len(STEPS):
-            pct, label = STEPS[step_idx]
+        if step_idx < len(current_steps):
+            icon, label, pct = current_steps[step_idx]
             progress_bar.progress(pct, text=f"{label} 처리 중...")
-            steps_placeholder.markdown(render_steps(step_idx), unsafe_allow_html=True)
+            steps_placeholder.markdown(render_steps(step_idx, current_steps), unsafe_allow_html=True)
             step_idx += 1
         time.sleep(0.8)
 
@@ -114,7 +119,7 @@ try:
         raise error_container["error"]
 
     result_state = result_container.get("state")
-    steps_placeholder.markdown(render_steps(len(STEPS)), unsafe_allow_html=True)
+    steps_placeholder.markdown(render_steps(len(current_steps), current_steps), unsafe_allow_html=True)
     progress_bar.progress(100, text="완료!")
 
     st.session_state["result_state"] = result_state
