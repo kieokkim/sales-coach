@@ -19,6 +19,20 @@
 
 ---
 
+### Decision 8: v1.5 product_master DB화 + 원가 컬럼 추가
+
+**결정:** `product_master.xlsx`를 DB 테이블로 승격하고, 카테고리별 마진율 기준으로 원가(`cost_price`)를 역산해 추가. 할인율/마진율 실시간 계산의 인프라로 사용.
+
+**구현:**
+- `scripts/add_cost_price.py` — 카테고리별 마진 배율 적용해 원가 계산 후 xlsx 저장 (체어 1.35배, 테이블 1.40배, 텐트 1.50배, 나머지 1.40배)
+- `db.py` — product_master 테이블 신설 (product_code PK, list_price, cost_price)
+- `scripts/seed_db.py` — `seed_product_master()` 추가, `seed()` 최초 실행 시 69건 적재
+- `nodes/pattern_nodes.py` — `_discount_sensitivity()` 추가: daily_product + product_master 조인 → 할인율 역산 → 버킷별 집계 → 마진율 계산
+
+**교훈:** 거래 데이터의 판매가는 이미 할인이 적용된 최종가라서, 할인율 역산에는 반드시 정가 마스터가 필요하다. product_master를 DB에 넣어두면 이후 버전(재고 시그널, 카니발리제이션 등)에서도 제품 단위 분석의 기준점으로 재사용할 수 있다.
+
+---
+
 ### Decision 7: v1.5 할인율 역산 설계 — product_master 조인 방식 채택
 
 **결정:** 할인율을 별도 컬럼으로 저장하지 않고, 거래가 ÷ 정가(product_master.list_price)로 매번 역산하는 방식을 채택한다.
