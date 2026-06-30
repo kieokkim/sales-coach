@@ -2,6 +2,28 @@
 
 ---
 
+### Decision 10: patterns context 빌더 공통화 리팩토링
+
+**결정:** `insight_node`와 `commentary_nodes`가 각자 따로 갖고 있던 patterns → context 문자열 변환 로직을 `nodes/context_builder.py`로 통합. 두 파일은 `build_patterns_context()`를 호출하는 2줄 wrapper로 교체.
+
+**발견 과정:**
+1. v1.2에서 `insight_node`에 patterns 섹션 추가 후 `commentary_nodes` 누락
+2. v1.5에서 `discount_sensitivity` 추가 시 동일한 실수 반복
+3. 원인 분석: 같은 정보를 두 파일에 손으로 각각 써야 하는 구조가 문제 → 한 곳만 고쳐도 양쪽에 반영되는 구조로 전환 결정
+
+**구현:**
+- `nodes/context_builder.py` 신설 — 모든 patterns 섹션 포함
+  (channel_trends, category_movers, return_anomalies, forecast,
+  promo_effect, purchase_combo, basket_metrics, time_pattern,
+  basket_association, discount_sensitivity, insights, actions)
+- `nodes/insight_node.py` — `_build_insight_context()` → 2줄 wrapper
+- `nodes/commentary_nodes.py` — `_build_context()` → 2줄 wrapper
+- 검증: 7/7 섹션 PASS, import 3개 OK, 15노드 확인
+
+**교훈:** 같은 데이터를 여러 파일에서 각자 변환하는 구조는 어느 한 쪽을 빠뜨리는 실수를 구조적으로 유발한다. "새 기능 추가 시 수정할 파일이 몇 개인가"를 설계 단계에서 따져야 한다. 수정 대상이 1개가 되도록 만드는 것이 가장 안전한 구조다.
+
+---
+
 ### Decision 9: v1.5 commentary_nodes 마진 섹션 누락 수정
 
 **결정:** `discount_sensitivity` 패턴을 `commentary_nodes.py`의 `_build_context`에도 반영해 AI 코멘터리에 마진/할인 정보가 포함되도록 수정한다.
