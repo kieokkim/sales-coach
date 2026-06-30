@@ -6,6 +6,7 @@ from config import LLM_MAX_TOKENS, LLM_MODEL
 
 logger = logging.getLogger(__name__)
 
+# 타겟 사용자·코칭 목적 정의: PERSONA.md 참고
 _SYSTEM_PROMPT = (
     "당신은 리테일 비즈니스 매출 분석 전문가입니다.\n"
     "제공된 데이터에는 오늘 수치와 비교 기준값(7일 평균, 30일 평균, 월 목표)이 함께 있습니다.\n"

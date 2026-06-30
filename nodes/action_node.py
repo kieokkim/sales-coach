@@ -6,6 +6,7 @@ from config import LLM_MAX_TOKENS, LLM_MODEL
 
 logger = logging.getLogger(__name__)
 
+# 타겟 사용자·코칭 목적 정의: PERSONA.md 참고
 _SYSTEM_PROMPT = (
     "당신은 리테일 영업/마케팅 매니저의 어시스턴트입니다.\n"
     "인사이트를 바탕으로 구체적이고 실행 가능한 액션을 도출하세요.\n\n"
