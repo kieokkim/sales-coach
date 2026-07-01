@@ -230,6 +230,10 @@ def build_patterns_context(state: dict) -> str:
                 f"  [{a.get('timing', '')}] {a.get('owner', '')}: "
                 f"{a.get('action', '')}"
             )
+            if a.get("scope"):
+                lines.append(f"    범위: {a['scope']}")
+            if a.get("expected_impact"):
+                lines.append(f"    기대효과: {a['expected_impact']}")
         lines.append("")
 
     return "\n".join(lines)

@@ -2,6 +2,47 @@
 
 ---
 
+### Decision 11: v1.6 Action 고도화 + Eval 1·2 구축
+
+**결정:** action_node 출력에 scope(해결 가능 범위), expected_impact(기대효과)
+필드를 추가하고, insight 정확도(Eval 1)와 action 품질(Eval 2-A, rule-based)을
+자동 측정하는 eval/ 모듈을 신설한다.
+
+**발견 과정:**
+1. v1.2~v1.5에서 인사이트(코호트/할인/재고/카니발리제이션 등) 층만
+   계속 깊어졌고, action_node가 만드는 액션의 구체성은 한 번도 직접
+   개선한 적이 없다는 점을 인지
+2. "인사이트가 깊어지면 액션도 자동으로 좋아지는가"를 검증한 적이
+   없다는 점을 확인 — 데이터 → 패턴 → 인사이트 → 액션 → 실행의
+   사다리에서 마지막 두 단계가 분리되어 있었음
+3. 업계 agent eval 표준 조사 — component-level(insight, action 각각)과
+   end-to-end(종합) 평가를 분리하는 것이 표준 패턴임을 확인.
+   deterministic 체크(자동, 100% 케이스)와 LLM-as-judge(선별적)를
+   나누는 것도 표준과 일치
+
+**구현:**
+- nodes/action_node.py — scope, expected_impact 필드 추가
+- nodes/context_builder.py — [권장 액션] 섹션에 범위/기대효과 노출
+- eval/ground_truth.py — rule 기반 정답 카테고리 자동 판정
+  (반품이슈/목표미달/수익성문제/정상, 심각도 우선순위 정렬)
+- eval/eval_insight.py — top_issue와 ground_truth 카테고리 키워드 매칭
+- eval/eval_action.py — owner/모호표현/scope/expected_impact 4점 채점
+- eval/eval_runner.py — 91일 전체 순회, Eval1(정확도%) + Eval2(평균점수)
+  + Eval3(종합) 자동 리포트
+
+**알려진 한계 (다음 작업에서 보완 필요):**
+- ground_truth가 pattern_nodes.py와 같은 임계값을 사용해 순환논리
+  위험이 있음 — 사람이 직접 라벨링한 anchor set(10~20개)으로
+  교차검증이 필요하나 이번 범위에서는 미포함
+- Eval 2-B(LLM-as-judge로 "실행 가능하고 동기부여 되는가" 채점)는
+  rule-based 체크만큼 정밀하지 않아 별도 작업으로 분리
+
+**교훈:** 인사이트를 깊게 만드는 것과 그 인사이트가 실제로 더 나은
+액션으로 이어지는지는 별개의 질문이다. 후자를 검증하지 않으면
+"기능은 늘었는데 진짜 좋아졌는지 모르는" 상태가 누적된다.
+
+---
+
 ### Decision 10: patterns context 빌더 공통화 리팩토링
 
 **결정:** `insight_node`와 `commentary_nodes`가 각자 따로 갖고 있던 patterns → context 문자열 변환 로직을 `nodes/context_builder.py`로 통합. 두 파일은 `build_patterns_context()`를 호출하는 2줄 wrapper로 교체.
