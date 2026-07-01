@@ -526,6 +526,92 @@ def _discount_sensitivity(state: dict) -> dict:
         return {}
 
 
+def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
+    """
+    최근 30일 일별 매출을 전반/후반으로 나눠 장기 방향성을 계산한다.
+    7일 평균 대비 오늘(이상치)과 달리 30일 전체 기울기(추세)를 본다.
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT report_date, SUM(total_revenue) as daily_total
+                FROM daily_kpi
+                WHERE report_date >= date(?, '-30 days')
+                  AND report_date < ?
+                GROUP BY report_date
+                ORDER BY report_date ASC
+                """,
+                (report_date_db, report_date_db),
+            ).fetchall()
+
+        if len(rows) < 7:
+            return {}
+
+        mid = len(rows) // 2
+        first_half_avg = sum(r[1] for r in rows[:mid]) / mid
+        second_half_avg = sum(r[1] for r in rows[mid:]) / (len(rows) - mid)
+
+        if first_half_avg == 0:
+            return {}
+
+        change_pct = round((second_half_avg - first_half_avg) / first_half_avg * 100, 1)
+        direction = (
+            "상승" if change_pct >= 10 else
+            "하락" if change_pct <= -10 else
+            "횡보"
+        )
+
+        with get_db() as conn:
+            channel_rows = conn.execute(
+                """
+                SELECT report_date,
+                       SUM(CASE WHEN platform IN ('HCC','HCC 부산점','HCC 제주점')
+                           THEN total_revenue ELSE 0 END) as offline_rev,
+                       SUM(CASE WHEN platform NOT IN ('HCC','HCC 부산점','HCC 제주점')
+                           THEN total_revenue ELSE 0 END) as online_rev
+                FROM daily_kpi
+                WHERE report_date >= date(?, '-30 days')
+                  AND report_date < ?
+                GROUP BY report_date
+                ORDER BY report_date ASC
+                """,
+                (report_date_db, report_date_db),
+            ).fetchall()
+
+        channel_trends = {}
+        for channel, idx in [("오프라인", 1), ("온라인", 2)]:
+            vals = [r[idx] for r in channel_rows if r[idx] is not None]
+            if len(vals) < 7:
+                continue
+            mid_c = len(vals) // 2
+            f_avg = sum(vals[:mid_c]) / mid_c
+            s_avg = sum(vals[mid_c:]) / (len(vals) - mid_c)
+            if f_avg == 0:
+                continue
+            ch_change = round((s_avg - f_avg) / f_avg * 100, 1)
+            ch_dir = (
+                "상승" if ch_change >= 10 else
+                "하락" if ch_change <= -10 else
+                "횡보"
+            )
+            channel_trends[channel] = {
+                "direction": ch_dir,
+                "change_pct": ch_change,
+            }
+
+        return {
+            "overall_direction": direction,
+            "overall_change_pct": change_pct,
+            "channel_trends": channel_trends,
+            "days_analyzed": len(rows),
+        }
+
+    except Exception as e:
+        logger.warning(f"_trend_direction_30d 실패: {e}")
+        return {}
+
+
 def pattern_detect_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     patterns: dict = {
@@ -539,6 +625,7 @@ def pattern_detect_node(state: dict) -> dict:
         "time_pattern": {},
         "basket_association": [],
         "discount_sensitivity": {},
+        "trend_direction_30d": {},
     }
 
     report_date_raw = state.get("report_date", "")
@@ -598,11 +685,17 @@ def pattern_detect_node(state: dict) -> dict:
     except Exception as e:
         logger.warning(f"discount_sensitivity 실패: {e}")
 
+    try:
+        patterns["trend_direction_30d"] = _trend_direction_30d(state, report_date_db)
+    except Exception as e:
+        logger.warning(f"trend_direction_30d 실패: {e}")
+
     logger.info(
         f"pattern_detect 완료: forecast={bool(patterns['forecast'])}, "
         f"return_anomalies={len(patterns['return_anomalies'])}건, "
         f"category_movers={len(patterns['category_movers'])}건, "
         f"basket_association={len(patterns['basket_association'])}건, "
-        f"discount_sensitivity={bool(patterns['discount_sensitivity'])}"
+        f"discount_sensitivity={bool(patterns['discount_sensitivity'])}, "
+        f"trend_30d={patterns['trend_direction_30d'].get('overall_direction', 'N/A')}"
     )
     return {**state, "patterns": patterns}

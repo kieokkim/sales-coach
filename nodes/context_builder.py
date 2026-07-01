@@ -53,11 +53,26 @@ def build_patterns_context(state: dict) -> str:
             )
         lines.append("")
 
+    trend_30d = patterns.get("trend_direction_30d", {})
+    if trend_30d:
+        lines.append("[30일 장기 추세]")
+        lines.append(
+            f"  전체: {trend_30d.get('overall_direction', '')} "
+            f"({trend_30d.get('overall_change_pct', 0):+.1f}%, "
+            f"{trend_30d.get('days_analyzed', 0)}일 분석)"
+        )
+        for ch, info in trend_30d.get("channel_trends", {}).items():
+            lines.append(
+                f"  {ch}: {info['direction']} "
+                f"({info['change_pct']:+.1f}%)"
+            )
+        lines.append("")
+
     movers = patterns.get("category_movers", [])
     if movers:
         lines.append("[카테고리별 매출 비중]")
         for m in movers[:5]:
-            flag_str = " ⚠️ 편중" if m["flag"] else ""
+            flag_str = " (구조적 집중, 장기 패턴)" if m["flag"] else ""
             lines.append(
                 f"  {m['category_l1']}: {m['total_sales']:,}원 "
                 f"({m['share_pct']}%){flag_str}"

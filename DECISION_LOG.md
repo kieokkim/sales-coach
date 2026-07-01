@@ -2,6 +2,42 @@
 
 ---
 
+### Decision 12: v1.6 2단계 — insight_node 우선순위 교정 + 30일 추세 추가
+
+**결정:** Eval 1 결과(12.1%)를 기반으로 insight_node가 오늘의
+이상치와 장기 추세를 구분하도록 프롬프트를 재설계하고,
+pattern_nodes에 30일 방향성 계산을 추가한다.
+
+**발견 과정:**
+1. Eval 1 실행 결과 80/91 케이스가 FAIL
+2. 패턴 분석: 반품이슈/수익성문제 날에도 insight_node가
+   일관되게 "Helinox 카테고리 편중 99%"를 top_issue로 선택
+3. 원인: 샘플 데이터에서 헬리녹스 제품이 구조적으로 압도적이라
+   LLM이 가장 눈에 띄는 수치를 top_issue로 고르게 됨
+4. 추가 발견: 7일 평균 대비 오늘(이상치)과 30일 장기 추세(방향성)를
+   구분하는 데이터 자체가 없어서 두 개념이 뒤섞임
+
+**구현:**
+- nodes/pattern_nodes.py — _trend_direction_30d() 추가
+  (30일 전반/후반 평균 비교로 방향성 계산, 채널별 분리)
+- nodes/context_builder.py — category_movers ⚠️ 표현 중립화,
+  [30일 장기 추세] 섹션 추가
+- nodes/insight_node.py — _SYSTEM_PROMPT 전면 재설계
+  (트랙 A: 오늘의 신호 vs 트랙 B: 장기 흐름 명시적 분리,
+   top_issue 선택 우선순위 4단계 명시)
+- eval/ground_truth.py — 편중 카테고리 추가 (priority=99, 최하위)
+- nodes/action_node.py, nodes/insight_node.py — JSON trailing comma
+  regex 수정 (LLM 출력의 trailing comma가 json.loads 실패 유발)
+
+**교훈:** LLM이 "가장 중요한 것"을 고르게 하려면
+"가장 중요한 것의 기준"을 명시해야 한다.
+"오늘 달라진 것"과 "항상 있는 것"을 구분하지 않으면
+LLM은 데이터에서 가장 눈에 띄는 것을 고른다.
+이상치 탐지와 추세 감지는 같은 분석이 아니며,
+둘 다 필요하지만 섞이면 둘 다 잃는다.
+
+---
+
 ### Decision 11: v1.6 Action 고도화 + Eval 1·2 구축
 
 **결정:** action_node 출력에 scope(해결 가능 범위), expected_impact(기대효과)

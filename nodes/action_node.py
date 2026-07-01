@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 from config import LLM_MAX_TOKENS, LLM_MODEL
 
@@ -129,6 +130,7 @@ def action_node(state: dict) -> dict:
         llm = ChatOpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, api_key=api_key)
         response = llm.invoke([SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_prompt)])
         raw = response.content.strip().removeprefix("```json").removesuffix("```").strip()
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
         parsed = json.loads(raw)
         actions = parsed.get("actions", [])
         logger.info(f"action_node 완료: {len(actions)}개 액션")

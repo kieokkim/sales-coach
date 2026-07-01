@@ -98,6 +98,24 @@ def determine_ground_truth(state: dict) -> dict:
             "priority": 3,
         })
 
+    # 편중: 다른 이슈가 없을 때만, 최하위 우선순위
+    movers = patterns.get("category_movers", [])
+    if movers:
+        dominant = [
+            m for m in movers
+            if m.get("flag") and m.get("share_pct", 0) > 80
+        ]
+        if dominant:
+            candidates.append({
+                "category": "편중",
+                "reason": (
+                    f"{dominant[0]['category_l1']} 매출 비중 "
+                    f"{dominant[0]['share_pct']}% — 구조적 집중"
+                ),
+                "severity": "low",
+                "priority": 99,
+            })
+
     if not candidates:
         return {
             "category": "정상",
