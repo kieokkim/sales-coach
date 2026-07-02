@@ -600,9 +600,36 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
                 "change_pct": ch_change,
             }
 
+        # 최근 7일 vs 직전 7일 비교 (가속도)
+        if len(rows) >= 14:
+            recent_7 = [r[1] for r in rows[-7:]]
+            prev_7 = [r[1] for r in rows[-14:-7]]
+            recent_avg = sum(recent_7) / 7
+            prev_avg = sum(prev_7) / 7
+            if prev_avg > 0:
+                acceleration_pct = round((recent_avg - prev_avg) / prev_avg * 100, 1)
+                if acceleration_pct >= 15:
+                    acceleration = "가속상승"
+                elif acceleration_pct >= 5:
+                    acceleration = "상승중"
+                elif acceleration_pct <= -15:
+                    acceleration = "가속하락"
+                elif acceleration_pct <= -5:
+                    acceleration = "하락중"
+                else:
+                    acceleration = "횡보"
+            else:
+                acceleration_pct = 0
+                acceleration = "측정불가"
+        else:
+            acceleration_pct = 0
+            acceleration = "데이터부족"
+
         return {
             "overall_direction": direction,
             "overall_change_pct": change_pct,
+            "acceleration": acceleration,
+            "acceleration_pct": acceleration_pct,
             "channel_trends": channel_trends,
             "days_analyzed": len(rows),
         }
@@ -610,6 +637,92 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
     except Exception as e:
         logger.warning(f"_trend_direction_30d 실패: {e}")
         return {}
+
+
+def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
+    """
+    요일 가중치 + 프로모션 보정을 반영한 오늘의 조정 일별 목표를 계산한다.
+    균등 분할 daily_required 대신 실제 요일 매출 패턴을 반영한 기준을 제공한다.
+    """
+    try:
+        year = int(report_date_raw[:4])
+        month = int(report_date_raw[4:6])
+        day = int(report_date_raw[6:8])
+    except (ValueError, IndexError):
+        return {}
+
+    target_summary = state.get("target_summary", {})
+    patterns = state.get("patterns", {})
+    kpi_total = state.get("kpi_total", {})
+
+    raw_daily_required = 0
+    for pt in target_summary.get("by_platform", []):
+        raw_daily_required += pt.get("daily_required", 0)
+    if raw_daily_required == 0:
+        return {}
+
+    adjustments_applied = []
+    adjusted = float(raw_daily_required)
+
+    # 1. 요일 가중치 적용
+    dt = datetime(year, month, day)
+    weekday_name = ["월", "화", "수", "목", "금", "토", "일"][dt.weekday()]
+    weekday_avg = patterns.get("time_pattern", {}).get("weekday_avg_30d", {})
+
+    if weekday_avg and len(weekday_avg) >= 5:
+        total_week_avg = sum(weekday_avg.values())
+        today_weight = weekday_avg.get(weekday_name, 0)
+        if total_week_avg > 0 and today_weight > 0:
+            uniform_weight = total_week_avg / 7
+            weight_ratio = today_weight / uniform_weight
+            adjusted = adjusted * weight_ratio
+            adjustments_applied.append(
+                f"요일 가중치({weekday_name}: ×{weight_ratio:.2f})"
+            )
+
+    # 2. 프로모션 기간 보정
+    promo = patterns.get("promo_effect", {})
+    if promo.get("active") and promo.get("sales_lift_pct", 0) > 0:
+        lift = promo["sales_lift_pct"] / 100
+        adjusted = adjusted * (1 + lift)
+        adjustments_applied.append(
+            f"프로모션 리프트(+{promo['sales_lift_pct']}%)"
+        )
+
+    # 3. 월중 위치 효과 (잔여일 기반 심각도)
+    total_days = monthrange(year, month)[1]
+    days_remaining = total_days - day
+    year_month = f"{year:04d}-{month:02d}"
+    target = MONTHLY_TARGETS.get(year_month, {}).get("_total", 0)
+
+    today_net_sales = kpi_total.get("net_sales", 0)
+    adjusted_daily_required = int(adjusted)
+    achievement_vs_adjusted = (
+        round(today_net_sales / adjusted_daily_required * 100, 1)
+        if adjusted_daily_required > 0 else 0.0
+    )
+
+    threshold = 0.8 if days_remaining >= 7 else 0.6
+    if today_net_sales < adjusted_daily_required * threshold:
+        if days_remaining < 7:
+            severity = "high"
+        elif days_remaining < 14:
+            severity = "medium"
+        else:
+            severity = "low"
+    else:
+        severity = "none"
+
+    return {
+        "raw_daily_required": int(raw_daily_required),
+        "adjusted_daily_required": adjusted_daily_required,
+        "today_net_sales": today_net_sales,
+        "achievement_vs_adjusted": achievement_vs_adjusted,
+        "days_remaining": days_remaining,
+        "today_weekday": weekday_name,
+        "severity": severity,
+        "adjustments_applied": adjustments_applied,
+    }
 
 
 def pattern_detect_node(state: dict) -> dict:
@@ -626,6 +739,7 @@ def pattern_detect_node(state: dict) -> dict:
         "basket_association": [],
         "discount_sensitivity": {},
         "trend_direction_30d": {},
+        "adjusted_daily_target": {},
     }
 
     report_date_raw = state.get("report_date", "")
@@ -689,6 +803,11 @@ def pattern_detect_node(state: dict) -> dict:
         patterns["trend_direction_30d"] = _trend_direction_30d(state, report_date_db)
     except Exception as e:
         logger.warning(f"trend_direction_30d 실패: {e}")
+
+    try:
+        patterns["adjusted_daily_target"] = _adjusted_daily_target(state, report_date_raw)
+    except Exception as e:
+        logger.warning(f"adjusted_daily_target 실패: {e}")
 
     logger.info(
         f"pattern_detect 완료: forecast={bool(patterns['forecast'])}, "

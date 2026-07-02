@@ -14,7 +14,11 @@ def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명") -> li
         zre = len(grp[grp["오더유형"] == "ZRE"])
         net_receipt = zor - zre
 
-        total_sales = grp["매출"].sum() if "매출" in grp.columns else 0
+        zor_df = grp[grp["오더유형"] == "ZOR"]
+        zre_df = grp[grp["오더유형"] == "ZRE"]
+        total_sales = zor_df["매출"].sum() if "매출" in zor_df.columns else 0
+        total_return_sales = zre_df["매출"].sum() if "매출" in zre_df.columns else 0
+        net_sales = int(total_sales - total_return_sales)
         total_point = grp["포인트"].sum() if "포인트" in grp.columns else 0
         total_fee = grp["봉사료"].sum() if "봉사료" in grp.columns else 0
 
@@ -24,6 +28,7 @@ def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명") -> li
             "zre": zre,
             "net_receipt": net_receipt,
             "total_sales": int(total_sales),
+            "net_sales": net_sales,
             "total_point": int(total_point),
             "total_fee": int(total_fee),
         })
@@ -138,6 +143,7 @@ def kpi_compute_node(state: dict) -> dict:
     kpi_total = {
         "net_receipt": 0,
         "total_sales": 0,
+        "net_sales": 0,
         "total_point": 0,
         "total_fee": 0,
     }
@@ -159,7 +165,7 @@ def kpi_compute_node(state: dict) -> dict:
             if p not in merged:
                 merged[p] = rec.copy()
             else:
-                for key in ["zor", "zre", "net_receipt", "total_sales", "total_point", "total_fee"]:
+                for key in ["zor", "zre", "net_receipt", "total_sales", "net_sales", "total_point", "total_fee"]:
                     merged[p][key] += rec[key]
 
         by_platform = list(merged.values())
@@ -168,6 +174,7 @@ def kpi_compute_node(state: dict) -> dict:
         for rec in by_platform:
             kpi_total["net_receipt"] += rec["net_receipt"]
             kpi_total["total_sales"] += rec["total_sales"]
+            kpi_total["net_sales"] += rec["net_sales"]
             kpi_total["total_point"] += rec["total_point"]
             kpi_total["total_fee"] += rec["total_fee"]
 
