@@ -29,18 +29,18 @@ def determine_ground_truth(state: dict) -> dict:
     (여러 개 해당 시 가장 심각한 것 하나만 반환)
     """
     patterns = state.get("patterns", {})
-    target_summary = state.get("target_summary", {})
+    kpi_total = state.get("kpi_total", {})
 
     candidates = []
 
-    # 1. 반품 이슈 — return_anomalies에 있거나, ZRE 전용 제품이 있는 경우
+    # 1. 반품 이상 (1순위)
     return_anomalies = patterns.get("return_anomalies", [])
     if return_anomalies:
         max_multiplier = max(r.get("multiplier", 0) for r in return_anomalies)
         candidates.append({
             "category": "반품이슈",
             "reason": (
-                f"{len(return_anomalies)}개 제품에서 반품률 이상 감지, "
+                f"{len(return_anomalies)}개 제품 반품률 이상, "
                 f"최대 평균의 {max_multiplier}배"
             ),
             "severity": "high" if max_multiplier >= 5 else "medium",
@@ -56,49 +56,69 @@ def determine_ground_truth(state: dict) -> dict:
         candidates.append({
             "category": "반품이슈",
             "reason": (
-                f"오늘 신규 판매 없이 반품만 발생한 제품 {len(return_only)}개, "
-                f"총 {total_zre}건"
+                f"판매 없이 반품만 {len(return_only)}개 제품 "
+                f"총 {total_zre}건 발생"
             ),
             "severity": "high" if total_zre >= 50 else "medium",
             "priority": 1,
         })
 
-    # 2. 목표 미달 — 전체 또는 플랫폼 달성률 기준
-    total_achievement = target_summary.get("total_achievement_pct", 100)
-    if total_achievement < 50:
-        candidates.append({
-            "category": "목표미달",
-            "reason": f"전체 목표 달성률 {total_achievement}%로 50% 미만",
-            "severity": "high",
-            "priority": 2,
-        })
-    elif total_achievement < 70:
-        candidates.append({
-            "category": "목표미달",
-            "reason": f"전체 목표 달성률 {total_achievement}%로 70% 미만",
-            "severity": "medium",
-            "priority": 2,
-        })
-
-    # 3. 수익성 문제 — 마진율 기준
+    # 2. 수익성 문제 (2순위) — 마진율, 오늘 측정값
     discount = patterns.get("discount_sensitivity", {})
     margin_pct = discount.get("margin_pct_overall")
-    if margin_pct is not None and margin_pct < 25:
+    if margin_pct is not None:
+        if margin_pct < 25:
+            candidates.append({
+                "category": "수익성문제",
+                "reason": f"오늘 마진율 {margin_pct}% — 25% 미만",
+                "severity": "high",
+                "priority": 2,
+            })
+        elif margin_pct < 30:
+            candidates.append({
+                "category": "수익성문제",
+                "reason": f"오늘 마진율 {margin_pct}% — 30% 미만",
+                "severity": "medium",
+                "priority": 2,
+            })
+
+    # 3. 목표 미달 (3순위) — 조정 일별 목표 기준 + 순매출
+    adt = patterns.get("adjusted_daily_target", {})
+    if adt and adt.get("severity") in ("high", "medium"):
+        adj_req = adt.get("adjusted_daily_required", 0)
+        net_sales = adt.get("today_net_sales", 0)
+        achievement = adt.get("achievement_vs_adjusted", 0)
+        days_remaining = adt.get("days_remaining", 30)
+        adjustments = ", ".join(adt.get("adjustments_applied", []))
+
         candidates.append({
-            "category": "수익성문제",
-            "reason": f"오늘 전체 마진율 {margin_pct}%로 25% 미만",
-            "severity": "high",
-            "priority": 3,
-        })
-    elif margin_pct is not None and margin_pct < 30:
-        candidates.append({
-            "category": "수익성문제",
-            "reason": f"오늘 전체 마진율 {margin_pct}%로 30% 미만",
-            "severity": "medium",
+            "category": "목표미달",
+            "reason": (
+                f"오늘 순매출 {net_sales:,}원 — "
+                f"조정 일별 목표({adjustments}) {adj_req:,}원의 "
+                f"{achievement}% (잔여 {days_remaining}일)"
+            ),
+            "severity": adt["severity"],
             "priority": 3,
         })
 
-    # 편중: 다른 이슈가 없을 때만, 최하위 우선순위
+    # 4. 추세 가속 하락 (4순위)
+    trend_30d = patterns.get("trend_direction_30d", {})
+    acceleration = trend_30d.get("acceleration", "")
+    if acceleration == "가속하락":
+        change = trend_30d.get("overall_change_pct", 0)
+        acc_pct = trend_30d.get("acceleration_pct", 0)
+        candidates.append({
+            "category": "추세악화",
+            "reason": (
+                f"30일 방향 {change:+.1f}%, "
+                f"최근 7일 가속 {acc_pct:+.1f}% — 하락 가속 중"
+            ),
+            "severity": "medium",
+            "priority": 4,
+        })
+
+    # 5. 편중 (최하위, 다른 이슈 없을 때만)
     movers = patterns.get("category_movers", [])
     if movers:
         dominant = [
@@ -110,7 +130,7 @@ def determine_ground_truth(state: dict) -> dict:
                 "category": "편중",
                 "reason": (
                     f"{dominant[0]['category_l1']} 매출 비중 "
-                    f"{dominant[0]['share_pct']}% — 구조적 집중"
+                    f"{dominant[0]['share_pct']}%"
                 ),
                 "severity": "low",
                 "priority": 99,

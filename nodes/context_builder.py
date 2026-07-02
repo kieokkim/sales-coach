@@ -61,10 +61,14 @@ def build_patterns_context(state: dict) -> str:
             f"({trend_30d.get('overall_change_pct', 0):+.1f}%, "
             f"{trend_30d.get('days_analyzed', 0)}일 분석)"
         )
+        if trend_30d.get("acceleration") not in ("", "데이터부족"):
+            lines.append(
+                f"  가속도: {trend_30d.get('acceleration', '')} "
+                f"({trend_30d.get('acceleration_pct', 0):+.1f}%)"
+            )
         for ch, info in trend_30d.get("channel_trends", {}).items():
             lines.append(
-                f"  {ch}: {info['direction']} "
-                f"({info['change_pct']:+.1f}%)"
+                f"  {ch}: {info['direction']} ({info['change_pct']:+.1f}%)"
             )
         lines.append("")
 
@@ -107,6 +111,26 @@ def build_patterns_context(state: dict) -> str:
             f"  월 목표: {fc.get('target', 0):,}원 / "
             f"예상 달성률: {fc.get('forecast_achievement_pct', 0)}%"
         )
+        lines.append("")
+
+    adt = patterns.get("adjusted_daily_target", {})
+    if adt:
+        lines.append("[조정 일별 목표 (요일/프로모션 보정)]")
+        lines.append(
+            f"  오늘 순매출: {adt.get('today_net_sales', 0):,}원"
+        )
+        lines.append(
+            f"  조정 일별 목표: {adt.get('adjusted_daily_required', 0):,}원 "
+            f"(기본: {adt.get('raw_daily_required', 0):,}원)"
+        )
+        lines.append(
+            f"  달성률: {adt.get('achievement_vs_adjusted', 0)}% "
+            f"/ 심각도: {adt.get('severity', 'none')}"
+        )
+        if adt.get("adjustments_applied"):
+            lines.append(
+                f"  적용된 보정: {', '.join(adt['adjustments_applied'])}"
+            )
         lines.append("")
 
     if target_summary:
