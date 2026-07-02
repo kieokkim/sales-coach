@@ -8,9 +8,25 @@ insight_node 평가 시 순환논리 위험이 있다. 이 함수는 1차 스크
 쓰고, 최종 신뢰도 판단에는 사람이 직접 라벨링한 anchor set(별도 작업)을
 반드시 함께 참조해야 한다.
 """
+import json
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def _load_anchor_set() -> dict:
+    """사람이 라벨링한 anchor set을 로드한다."""
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "anchor_set.json"
+    )
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {k: v for k, v in data.items() if not k.startswith("_")}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def determine_ground_truth(state: dict) -> dict:
@@ -28,6 +44,22 @@ def determine_ground_truth(state: dict) -> dict:
     우선순위: 반품이슈 > 목표미달 > 수익성문제 > 정상
     (여러 개 해당 시 가장 심각한 것 하나만 반환)
     """
+    report_date = state.get("report_date", "")
+    if len(report_date) == 8:
+        date_key = f"{report_date[:4]}-{report_date[4:6]}-{report_date[6:8]}"
+    else:
+        date_key = report_date
+
+    anchor_set = _load_anchor_set()
+    if date_key in anchor_set:
+        entry = anchor_set[date_key]
+        return {
+            "category": entry.get("top_issue_category", "정상"),
+            "reason": entry.get("note", "사람이 직접 라벨링한 케이스"),
+            "severity": entry.get("severity", "none"),
+            "source": "anchor_set",
+        }
+
     patterns = state.get("patterns", {})
     kpi_total = state.get("kpi_total", {})
 

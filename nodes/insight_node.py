@@ -60,6 +60,19 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _load_company_profile() -> str:
+    """COMPANY_PROFILE.md를 읽어서 프롬프트에 포함할 텍스트로 반환."""
+    profile_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "COMPANY_PROFILE.md"
+    )
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
 def _build_insight_context(state: dict) -> str:
     return build_patterns_context(state)
 
@@ -89,13 +102,24 @@ def insight_node(state: dict) -> dict:
             f"{context}"
         )
 
+        company_profile = _load_company_profile()
+        if company_profile:
+            system_prompt = (
+                "## 기업/도메인 특성 (판단 시 반드시 참조)\n"
+                f"{company_profile}\n\n"
+                "---\n\n"
+                + _SYSTEM_PROMPT
+            )
+        else:
+            system_prompt = _SYSTEM_PROMPT
+
         llm = ChatOpenAI(
             model=LLM_MODEL,
             max_tokens=LLM_MAX_TOKENS,
             api_key=api_key
         )
         response = llm.invoke([
-            SystemMessage(content=_SYSTEM_PROMPT),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
         ])
         raw = (response.content.strip()

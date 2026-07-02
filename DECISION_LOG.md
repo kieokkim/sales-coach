@@ -2,6 +2,50 @@
 
 ---
 
+### Decision 13: v1.6 3단계 — 목표 달성 판단 5요소 정밀화 + Eval 51.6% 달성
+
+**결정:** 목표미달 판단을 "월 누적 달성률"에서
+"5가지 요소를 반영한 조정 일별 목표 대비 순매출 달성률"로 전환.
+Eval 1 정확도 12.1% → 51.6%로 개선 후 anchor set 라벨링 단계로 이행.
+COMPANY_PROFILE.md를 도입해 도메인 특성이 판단에 반영되는 구조 확립.
+
+**발견 과정:**
+1. v1.6 1단계(12.1%): 편중 패턴 지배 — 구조적 특성이 매일 top_issue 선택
+2. v1.6 2단계(41.9%): 편중 제거 후 HCC 월 누적 달성률 패턴 발견
+3. v1.6 3단계(51.6%): 5요소 적용 후 남은 FAIL 15건 →
+   "수익성문제 vs 목표미달 동시 발생 시 어느 게 더 중요한가"는
+   코드로 풀 수 없는 도메인 판단 문제임을 확인
+
+**구현:**
+- nodes/kpi_nodes.py — net_sales 추가 (ZOR-ZRE 순매출)
+- nodes/pattern_nodes.py — _adjusted_daily_target() + 가속도 추가
+- eval/ground_truth.py — 5단계 우선순위 + anchor_set 우선 참조
+- eval/anchor_set.json — 사람 라벨링 케이스 (2개, 확실한 것만)
+- eval/eval_insight.py — 추세악화 카테고리 추가
+- nodes/insight_node.py — COMPANY_PROFILE.md 로드 + 프롬프트 반영
+- nodes/context_builder.py — 조정 일별 목표 + 가속도 섹션 추가
+- COMPANY_PROFILE.md — 도메인 지식 베이스 신설
+  (매출 구조, 계절성, 판단 기준, 이슈 히스토리)
+
+**결정: 51.6%에서 멈추는 이유:**
+남은 FAIL 15건이 전부 ground_truth 우선순위 자체가 옳은지
+모호한 케이스. 코드로 계속 조정하면 순환논리.
+anchor_set 라벨링으로 ground_truth 검증 후 진행.
+
+**다음 작업:**
+1. anchor_set 라벨링 (10~20개, 수익성 vs 목표미달 모호 케이스 집중)
+2. 맥락 조건부 우선순위 (잔여일 기반 동적 우선순위)
+3. COMPANY_PROFILE 이슈 히스토리 누적 (매달 업데이트)
+
+**교훈:**
+에이전트가 "학습"하는 것처럼 동작하려면 세 가지 레이어가 필요하다.
+1. 사람이 기입한 도메인 지식(COMPANY_PROFILE) — 즉시 반영
+2. 사람이 라벨링한 anchor set — ground_truth 검증
+3. 누적된 케이스의 벡터화(RAG) — v2.0 이후
+지금은 1+2로 시작하고, 케이스가 쌓이면 3으로 자연스럽게 이행한다.
+
+---
+
 ### Decision 12: v1.6 2단계 — insight_node 우선순위 교정 + 30일 추세 추가
 
 **결정:** Eval 1 결과(12.1%)를 기반으로 insight_node가 오늘의
