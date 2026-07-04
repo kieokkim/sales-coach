@@ -86,6 +86,67 @@ def _load_company_profile() -> str:
 def _build_insight_context(state: dict) -> str:
     return build_patterns_context(state)
 
+
+_MONTHLY_CUMULATIVE_PATTERN = re.compile(
+    r"(월\s*(누적|달성률)|누적\s*달성률)"
+)
+_CHANNEL_NAMES = ["HCC", "메이크샵", "네이버", "카카오", "부산점", "제주점"]
+
+
+def _is_monthly_cumulative_issue(top_issue: str) -> bool:
+    """
+    top_issue가 '월 누적 달성률 + 특정 채널명' 패턴인지 판정한다.
+    이 패턴은 트랙A(오늘 즉각 대응) 자격이 없다 — 매일 거의 안 바뀌는
+    월 누적 수치이기 때문이다. 프롬프트 지시로 반복 실패했으므로
+    rule-based로 강제 격리한다.
+    """
+    if not top_issue:
+        return False
+    has_monthly_keyword = bool(_MONTHLY_CUMULATIVE_PATTERN.search(top_issue))
+    has_channel_name = any(ch in top_issue for ch in _CHANNEL_NAMES)
+    return has_monthly_keyword and has_channel_name
+
+
+def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
+    """
+    insights['top_issue']가 월 누적+채널 패턴이면 risk_items로 옮기고
+    다음으로 유효한 트랙A 신호(반품 이상 > 마진 편차 > 목표 페이스)로 대체한다.
+    """
+    top_issue = insights.get("top_issue", "")
+    if not _is_monthly_cumulative_issue(top_issue):
+        return insights
+
+    risk_items = list(insights.get("risk_items") or [])
+    risk_items.insert(0, top_issue)
+    insights["risk_items"] = risk_items
+
+    return_anomalies = patterns.get("return_anomalies", [])
+    discount = patterns.get("discount_sensitivity", {})
+    adt = patterns.get("adjusted_daily_target", {})
+
+    if return_anomalies:
+        r = return_anomalies[0]
+        insights["top_issue"] = (
+            f"{r['product_name']} 반품률 이상 — "
+            f"오늘 {r['return_rate_today']:.1%}, 평균의 {r['multiplier']}배"
+        )
+    elif discount.get("margin_deviation") is not None and discount["margin_deviation"] <= -3:
+        insights["top_issue"] = (
+            f"오늘 마진이 판매 믹스 기대치보다 "
+            f"{abs(discount['margin_deviation'])}%p 낮음 — 할인/가격 이슈 추정"
+        )
+    elif adt.get("severity") in ("high", "medium", "low") and adt.get("achievement_vs_adjusted") is not None:
+        insights["top_issue"] = (
+            f"오늘 순매출이 조정 일별 목표의 "
+            f"{adt['achievement_vs_adjusted']}%에 불과 — 목표 페이스 미달"
+        )
+    else:
+        insights["top_issue"] = "오늘 특이 이슈 없음 — 정상 범위"
+        insights["top_issue_reason"] = "반품/마진/목표 페이스 모두 정상 범위 내"
+
+    return insights
+
+
 def insight_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     insights: dict = {}
@@ -138,6 +199,7 @@ def insight_node(state: dict) -> dict:
                .strip())
         raw = re.sub(r',\s*([}\]])', r'\1', raw)
         insights = json.loads(raw)
+        insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
         logger.info(
             f"insight_node 완료: top_issue={insights.get('top_issue', '')[:30]}..."
         )
