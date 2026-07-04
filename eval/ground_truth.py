@@ -123,7 +123,7 @@ def determine_ground_truth(state: dict) -> dict:
 
     # 3. 목표 미달 (3순위) — 조정 일별 목표 기준 + 순매출
     adt = patterns.get("adjusted_daily_target", {})
-    if adt and adt.get("severity") in ("high", "medium"):
+    if adt and adt.get("severity") in ("high", "medium", "low"):
         adj_req = adt.get("adjusted_daily_required", 0)
         net_sales = adt.get("today_net_sales", 0)
         achievement = adt.get("achievement_vs_adjusted", 0)

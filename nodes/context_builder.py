@@ -142,9 +142,8 @@ def build_patterns_context(state: dict) -> str:
             f"잔여 {target_summary.get('days_remaining', 0)}일"
         )
         for pt in target_summary.get("by_platform", []):
-            flag_str = " ⚠️ 저조" if pt.get("flag") == "low_achievement" else ""
             lines.append(
-                f"  {pt['platform']}: {pt['achievement_pct']}%{flag_str} / "
+                f"  {pt['platform']}: {pt['achievement_pct']}% (월 누적, 참고용) / "
                 f"일평균 {pt['daily_required']:,}원 필요"
             )
         lines.append("")
