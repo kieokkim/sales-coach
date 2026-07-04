@@ -219,6 +219,12 @@ def build_patterns_context(state: dict) -> str:
             f"  오늘 전체 마진율: {discount.get('margin_pct_overall', 0)}% "
             f"(마진 총액 {discount.get('total_margin', 0):,}원)"
         )
+        if discount.get("theoretical_margin_pct") is not None:
+            lines.append(
+                f"  오늘 믹스 기대 마진: {discount.get('theoretical_margin_pct')}% / "
+                f"실제 마진: {discount.get('margin_pct_overall')}% / "
+                f"편차: {discount.get('margin_deviation')}%p"
+            )
         for bucket, m in discount["bucket_summary"].items():
             lines.append(
                 f"  할인 {bucket}: 제품 {m['product_count']}개, "

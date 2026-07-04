@@ -514,12 +514,41 @@ def _discount_sensitivity(state: dict) -> dict:
         product_discounts.sort(key=lambda x: x["discount_pct"], reverse=True)
         margin_pct_overall = round(total_margin / total_revenue * 100, 1) if total_revenue else 0
 
+        # 오늘 판매 믹스의 이론 마진 계산
+        # (각 제품이 정가로 팔렸다고 가정했을 때의 마진율)
+        theoretical_margin_total = 0
+        theoretical_revenue_total = 0
+
+        for prod in by_product:
+            code = prod["product_code"]
+            qty = prod["qty"]
+            info = price_map.get(code)
+            if not info or qty == 0:
+                continue
+            list_price = info["list_price"]
+            cost_price = info["cost_price"]
+            # 정가로 팔렸을 때의 마진 (할인 없다고 가정)
+            theoretical_margin_total += (list_price - cost_price) * qty
+            theoretical_revenue_total += list_price * qty
+
+        theoretical_margin_pct = (
+            round(theoretical_margin_total / theoretical_revenue_total * 100, 1)
+            if theoretical_revenue_total > 0 else None
+        )
+
+        # 실제 마진과 이론 마진의 편차 (음수면 할인/가격 이슈로 마진 훼손)
+        margin_deviation = None
+        if theoretical_margin_pct is not None and margin_pct_overall is not None:
+            margin_deviation = round(margin_pct_overall - theoretical_margin_pct, 1)
+
         return {
             "bucket_summary": bucket_summary,
             "top_discounted": product_discounts[:5],
             "total_margin": total_margin,
             "total_revenue": total_revenue,
             "margin_pct_overall": margin_pct_overall,
+            "theoretical_margin_pct": theoretical_margin_pct,
+            "margin_deviation": margin_deviation,
         }
     except Exception as e:
         logger.warning(f"_discount_sensitivity 실패: {e}")

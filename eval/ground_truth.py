@@ -95,21 +95,28 @@ def determine_ground_truth(state: dict) -> dict:
             "priority": 1,
         })
 
-    # 2. 수익성 문제 (2순위) — 마진율, 오늘 측정값
+    # 2. 수익성 문제 (2순위) — 오늘 믹스 이론 마진 대비 실제 마진 이탈폭
     discount = patterns.get("discount_sensitivity", {})
-    margin_pct = discount.get("margin_pct_overall")
-    if margin_pct is not None:
-        if margin_pct < 25:
+    margin_deviation = discount.get("margin_deviation")
+    if margin_deviation is not None:
+        if margin_deviation <= -5:
             candidates.append({
                 "category": "수익성문제",
-                "reason": f"오늘 마진율 {margin_pct}% — 25% 미만",
+                "reason": (
+                    f"실제 마진이 오늘 믹스 기대치보다 {abs(margin_deviation)}%p 낮음 "
+                    f"(실제 {discount.get('margin_pct_overall')}% vs "
+                    f"기대 {discount.get('theoretical_margin_pct')}%) — 할인/가격 이슈"
+                ),
                 "severity": "high",
                 "priority": 2,
             })
-        elif margin_pct < 30:
+        elif margin_deviation <= -3:
             candidates.append({
                 "category": "수익성문제",
-                "reason": f"오늘 마진율 {margin_pct}% — 30% 미만",
+                "reason": (
+                    f"실제 마진이 기대치보다 {abs(margin_deviation)}%p 낮음 "
+                    f"(할인 영향 추정)"
+                ),
                 "severity": "medium",
                 "priority": 2,
             })
