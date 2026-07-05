@@ -5,7 +5,39 @@
 
 ---
 
-## 현재 버전: v1.5 (완료)
+## 현재 버전: v1.6 진행 중 (4단계 — 측정 설계 재검토)
+
+---
+
+## 이번 세션 확정 사항 (v1.6 4단계)
+
+### 스키마 재설계 결정 (다음 작업)
+- top_issue 단일 → **top_issues 복수 (상한 2)** — 91일 분포로 확정
+  (eval/count_concurrent_issues.py: 3개 이상 동시발생 0일, 2개 18.7%)
+- insight_node 출력에 **category 필드** 추가:
+  LLM이 자연어로 자유 서술 + 스스로 5개 유형 중 하나로 태깅
+  (반품이슈 / 수익성문제 / 목표미달 / 추세악화 / 편중)
+- **status는 top_issues 개수에서 rule-based 자동도출** (LLM 선언 안 함)
+  0개→정상, 1개→주의, 2개→경보
+- **relation 필드**: 2개일 때만 (독립 / 연결)
+- top_issues 빈 리스트 허용 — "정상인 날"을 정식 답으로 (91일 중 38.5%가 0개)
+
+### Eval 재설계 (다음 작업)
+- eval_insight.py: **키워드 매칭 폐기 → 카테고리 집합 비교**
+- 이유: 프롬프트는 "편중 단어 쓰지 마라", 채점기는 "편중 단어 있어야 PASS"
+  → 자기모순. 카테고리 집합 비교로 전환하면 표현 우연이 개입 못 함
+- insight_node 프롬프트 프루닝: 실패한 재강조 문구
+  ("top_issue 작성 전 최종 체크") 제거 — rule 필터가 대신하므로 죽은 지시
+
+### 이번 세션 수정 완료
+- 마진 판정: 절대 30% → **믹스 상대편차** (margin_deviation -3%p medium / -5%p high)
+  COMPANY_PROFILE 마진 기준 28% 베이스라인으로 정정 (Decision 14)
+- ground_truth severity="low" candidate 등록 허용 (배제 버그 수정, Decision 15)
+- insight_node **_enforce_track_a_isolation() 필터** 추가 (Decision 16)
+
+### 미해결 (다음 세션 주의)
+- margin_deviation 91일 0건 발동 — 실전 미검증. 딥디스카운트 합성 케이스 필요
+- 0629 adjusted_daily_target 폭발 버그 (조정목표 28억 이상치)
 
 ---
 
