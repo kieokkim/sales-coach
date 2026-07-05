@@ -2,6 +2,46 @@
 
 ---
 
+### Decision 17: category rule 게이트 — LLM 오태깅을 rule로 강제 차단
+
+**결정:** LLM이 태깅한 category를 rule이 최종 검증해 오태깅을 제거.
+목표미달/수익성문제는 수치 기준이 명확하므로 게이트 적용.
+
+**발견 과정:**
+1. eval_insight 카테고리 집합 비교 전환 후(Decision 16) FP 10건 발견
+2. 6건 심층 분석: 9건이 LLM 남발(기준 어기고 태깅), 1건만 rule-배제 억울
+3. 특히 0505는 달성률 164.8%(목표 초과)인데 "목표미달" 태깅 — 명백한 오독
+4. 프롬프트로 기준 준수를 지시하는 것은 이미 여러 번 실패(마진 문턱,
+   월 누적 격리) → rule 게이트로 강제하는 것이 검증된 패턴
+
+**구현:**
+- nodes/insight_node.py — _validate_category_by_rule() 추가,
+  _enforce_track_a_isolation에 게이트 통합
+  (목표미달: adt.severity none이면 제거 / 수익성: 편차 -3%p 초과면 제거)
+- eval/ground_truth.py — 목표미달 low 포함 (0515 구제, 측정 교정)
+- nodes/insight_node.py — 프롬프트에 게이트 명시 (불필요 태깅 사전 감소)
+
+**측정 완화가 아닌 이유:**
+게이트는 "기준 미달인데 태깅한 것"만 제거한다. 실제 이슈를 지우지 않으므로
+recall이 유지된다(하락하면 게이트 과도로 재조정). ground_truth low 포함은
+실제 목표 미달인 날(72.8%)을 미달로 인정하는 교정이다.
+
+**교훈:**
+LLM에게 category를 자유롭게 태깅하게 하되, 그 정당성은 rule이 검증한다.
+"창조적 서술은 LLM, 분류의 정당성은 rule"이 category 자기선언 구조의 완성형이다.
+LLM이 숫자를 거꾸로 읽는 오독(달성률 164%→목표미달)은 프롬프트로 못 막는다.
+rule 게이트만이 이런 오독을 결정론적으로 차단한다.
+
+**미해결 (0629 버그 — 이번엔 못 고침):**
+_adjusted_daily_target의 요일 가중치 폭발로 가정하고 잔여 3일 이하 가중치
+생략 가드를 넣었으나, 실제 원인은 target_nodes.py의 daily_required =
+remaining_amount / days_remaining 자체였다. 잔여 1일 + 월 목표 대폭 미달이면
+28억/1일 = 28억이 되어 조정목표가 폭발한다. 가드는 별개 엣지 방어로
+유지하되, 근본 수정(잔여일 적을 때 daily_required 캡 또는 조정목표 산식
+변경)은 target 시스템 의미론을 건드리므로 별도 결정 필요.
+
+---
+
 ### Decision 16: 프롬프트 재강조 2회 실패 → rule-based output 필터로 전환
 
 **결정:** insight_node의 top_issue에서 "월 누적+채널명" 패턴을

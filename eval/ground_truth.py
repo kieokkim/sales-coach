@@ -256,9 +256,9 @@ def determine_ground_truth_set(state: dict) -> dict:
         elif dev <= -3:
             detail.append({"category": "수익성문제", "severity": "medium"})
 
-    # 목표미달
+    # 목표미달 (low 포함 — 실제 미달인 날을 미달로 인정, 측정 교정)
     adt = patterns.get("adjusted_daily_target", {})
-    if adt.get("severity") in ("high", "medium"):
+    if adt.get("severity") in ("high", "medium", "low"):
         detail.append({"category": "목표미달", "severity": adt["severity"]})
 
     # 추세악화

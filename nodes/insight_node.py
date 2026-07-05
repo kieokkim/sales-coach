@@ -40,6 +40,13 @@ _SYSTEM_PROMPT = (
     "- 추세악화: 30일 추세 하락 + 최근 7일이 직전 7일보다 15% 이상 가속 하락\n"
     "- 편중: 특정 브랜드/카테고리 비중 지배. 단, 매일 반복되면 이슈 아님.\n\n"
 
+    "## 태깅 게이트 (반드시 지킬 것 — 어기면 시스템이 자동 제거함)\n"
+    "- 목표미달: [조정 일별 목표] 섹션의 달성률이 80% 미만일 때만.\n"
+    "  80% 이상이면 목표미달 아님. 달성률이 100%를 넘으면 절대 목표미달 아님.\n"
+    "- 수익성문제: [할인/마진] 섹션의 '마진 편차'가 -3%p 이하일 때만.\n"
+    "  편차가 -3%p보다 크면(0에 가까우면) 수익성문제 아님.\n"
+    "- 확실하지 않으면 태깅하지 마세요. 빈 리스트가 정답인 날이 많습니다.\n\n"
+
     "## relation (이슈가 2개일 때만)\n"
     "- linked: 한 이슈가 다른 이슈의 원인 (예: 할인 과다 → 마진 훼손 + 목표 미달)\n"
     "- independent: 두 이슈의 원인이 서로 다름\n"
@@ -100,11 +107,49 @@ def _is_monthly_cumulative_issue(top_issue: str) -> bool:
     return has_monthly_keyword and has_channel_name
 
 
+def _validate_category_by_rule(item: dict, patterns: dict) -> bool:
+    """
+    LLM이 태깅한 category가 rule 기준에 실제로 부합하는지 검증한다.
+    프롬프트 지시로 반복 실패했으므로 rule-based로 강제 확인.
+    부합하면 True(유지), 아니면 False(제거).
+
+    검증 대상: 목표미달, 수익성문제 (수치 기준이 명확한 것)
+    반품이슈/추세악화는 rule 판정과 LLM 판단이 대체로 일치하므로 통과.
+    """
+    category = item.get("category", "")
+
+    if category == "목표미달":
+        adt = patterns.get("adjusted_daily_target", {})
+        sev = adt.get("severity")
+        # high/medium/low는 실제 목표 미달. none이면 달성/초과 → 오태깅
+        valid = sev in ("high", "medium", "low")
+        if not valid:
+            logger.info(
+                f"category 게이트: 목표미달 제거 "
+                f"(severity={sev}, 달성률={adt.get('achievement_vs_adjusted')}%)"
+            )
+        return valid
+
+    if category == "수익성문제":
+        discount = patterns.get("discount_sensitivity", {})
+        dev = discount.get("margin_deviation")
+        # 편차 -3%p 이하만 실제 수익성 문제
+        valid = dev is not None and dev <= -3
+        if not valid:
+            logger.info(
+                f"category 게이트: 수익성문제 제거 (margin_deviation={dev})"
+            )
+        return valid
+
+    # 반품이슈/추세악화/편중/기타는 통과
+    return True
+
+
 def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
     """
-    top_issues의 각 항목을 검사해 '월 누적+채널명' 패턴이면 제거하고
-    risk_items로 이동한다. category가 이미 있으므로 문자열 패턴 매칭은
-    보조 안전장치로만 사용한다.
+    top_issues의 각 항목을 검사한다:
+    1) '월 누적+채널명' 패턴이면 risk_items로 격리 (보조 안전장치)
+    2) category가 rule 기준에 미달하면 제거 (오태깅 게이트)
     """
     top_issues = insights.get("top_issues", [])
     if not isinstance(top_issues, list):
@@ -119,12 +164,19 @@ def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
         if not isinstance(item, dict):
             continue
         issue_text = item.get("issue", "")
-        # 월 누적+채널명 패턴이면 격리 (보조 안전장치)
+        # 1) 월 누적+채널명 패턴이면 격리 (보조 안전장치)
         if _is_monthly_cumulative_issue(issue_text):
             logger.info(f"트랙A 격리: '{issue_text[:40]}...' → risk_items")
             risk_items.insert(0, issue_text)
-        else:
-            kept.append(item)
+            continue
+
+        # 2) category rule 게이트
+        if not _validate_category_by_rule(item, patterns):
+            # 오태깅된 이슈는 risk_items로 강등 (정보는 보존)
+            risk_items.append(f"[검토] {issue_text}")
+            continue
+
+        kept.append(item)
 
     insights["top_issues"] = kept[:2]  # 상한 2 강제
     insights["risk_items"] = risk_items

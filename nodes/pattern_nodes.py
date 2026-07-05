@@ -698,7 +698,11 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
     weekday_name = ["월", "화", "수", "목", "금", "토", "일"][dt.weekday()]
     weekday_avg = patterns.get("time_pattern", {}).get("weekday_avg_30d", {})
 
-    if weekday_avg and len(weekday_avg) >= 5:
+    # 잔여일이 매우 적으면 요일 가중치 생략 (폭발 방지)
+    # 잔여 1일이면 raw_daily_required가 남은 목표 전액이 되고
+    # 거기에 주말 가중치까지 곱해지면 목표가 비현실적으로 부풀려짐.
+    days_remaining_check = monthrange(year, month)[1] - day
+    if weekday_avg and len(weekday_avg) >= 5 and days_remaining_check > 3:
         total_week_avg = sum(weekday_avg.values())
         today_weight = weekday_avg.get(weekday_name, 0)
         if total_week_avg > 0 and today_weight > 0:
@@ -708,6 +712,8 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
             adjustments_applied.append(
                 f"요일 가중치({weekday_name}: ×{weight_ratio:.2f})"
             )
+    elif days_remaining_check <= 3:
+        adjustments_applied.append("월말 임박 — 요일 가중치 생략")
 
     # 2. 프로모션 기간 보정
     promo = patterns.get("promo_effect", {})
