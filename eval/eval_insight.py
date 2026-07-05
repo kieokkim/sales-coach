@@ -1,64 +1,77 @@
 """
 eval/eval_insight.py
-insight_node가 도출한 top_issue가 ground_truth의 category와
-같은 방향을 가리키는지 판정한다 (Eval 1: Insight 정확도).
+Eval 1: insight_node의 top_issues category 집합과 ground_truth 카테고리
+집합을 비교한다. 키워드 매칭을 폐기하고 집합 비교로 전환 —
+프롬프트가 "편중 언급 금지"인데 채점기가 "편중 단어 요구"하던 자기모순 해소.
 
-판정은 정확한 문자열 일치가 아니라 카테고리 키워드 포함 여부로 한다.
-insight_node.top_issue는 자유 서술 문장이므로 완전 일치를 요구하면
-정상적으로 맞춘 케이스도 FAIL로 잘못 판정될 수 있다.
+정상날(양쪽 다 빈 집합)은 PASS.
+LLM이 기준 미달인데 태깅한 경우(false positive)는 정밀도 하락으로 감점.
 """
 import logging
 
 logger = logging.getLogger(__name__)
 
-_CATEGORY_KEYWORDS = {
-    "반품이슈": ["반품", "품질", "리콜"],
-    "목표미달": ["목표", "달성률", "미달", "부진", "일별", "순매출"],
-    "수익성문제": ["마진", "수익성", "할인"],
-    "추세악화": ["하락", "가속", "추세", "악화"],
-    "편중": ["편중", "집중", "비중"],
-    "정상": [],
-}
+_VALID_CATEGORIES = {"반품이슈", "수익성문제", "목표미달", "추세악화", "편중", "기타"}
 
 
-def evaluate_insight(state: dict, ground_truth: dict) -> dict:
+def evaluate_insight(state: dict, ground_truth_set: dict) -> dict:
     """
-    state['insights']['top_issue']와 ground_truth['category']를 비교한다.
-
     반환:
     {
-        "match": bool,
-        "ground_truth_category": str,
-        "predicted_top_issue": str,
-        "ground_truth_severity": str,
+        "match": bool,               # 완전 일치 여부 (집합 동일)
+        "precision": float,          # 맞게 태깅한 비율
+        "recall": float,             # 잡아야 할 걸 잡은 비율
+        "f1": float,
+        "predicted": set,            # LLM이 태깅한 카테고리
+        "ground_truth": set,         # 정답 카테고리
+        "false_positives": set,      # LLM이 잘못 넣은 것 (0401 케이스)
+        "false_negatives": set,      # LLM이 놓친 것
     }
     """
     insights = state.get("insights", {})
-    top_issue = insights.get("top_issue", "") or ""
+    top_issues = insights.get("top_issues", [])
 
-    gt_category = ground_truth.get("category", "정상")
-    gt_severity = ground_truth.get("severity", "none")
+    # LLM이 태깅한 카테고리 집합 (편중은 정상적으로 제외되어야 하나, 들어오면 집합에서 뺌)
+    predicted = set()
+    for item in top_issues:
+        if isinstance(item, dict):
+            cat = item.get("category", "")
+            if cat in _VALID_CATEGORIES and cat != "편중":
+                predicted.add(cat)
 
-    if gt_category == "정상":
-        # 이슈가 없는 날: insight가 critical한 issue를 만들어내지 않았으면 PASS로 간주
-        keywords_other = [
-            kw for cat, kws in _CATEGORY_KEYWORDS.items()
-            if cat != "정상" for kw in kws
-        ]
-        false_alarm = any(kw in top_issue for kw in keywords_other)
+    gt = ground_truth_set.get("categories", set())
+
+    # 집합 비교
+    true_positives = predicted & gt
+    false_positives = predicted - gt
+    false_negatives = gt - predicted
+
+    # 정상날 처리: 양쪽 다 빈 집합이면 완전 일치
+    if not predicted and not gt:
         return {
-            "match": not false_alarm,
-            "ground_truth_category": gt_category,
-            "predicted_top_issue": top_issue,
-            "ground_truth_severity": gt_severity,
+            "match": True, "precision": 1.0, "recall": 1.0, "f1": 1.0,
+            "predicted": predicted, "ground_truth": gt,
+            "false_positives": set(), "false_negatives": set(),
         }
 
-    keywords = _CATEGORY_KEYWORDS.get(gt_category, [])
-    matched = any(kw in top_issue for kw in keywords)
+    precision = (
+        len(true_positives) / len(predicted) if predicted else 0.0
+    )
+    recall = (
+        len(true_positives) / len(gt) if gt else 0.0
+    )
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0 else 0.0
+    )
 
     return {
-        "match": matched,
-        "ground_truth_category": gt_category,
-        "predicted_top_issue": top_issue,
-        "ground_truth_severity": gt_severity,
+        "match": predicted == gt,
+        "precision": round(precision, 3),
+        "recall": round(recall, 3),
+        "f1": round(f1, 3),
+        "predicted": predicted,
+        "ground_truth": gt,
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
     }

@@ -192,3 +192,83 @@ def determine_ground_truth(state: dict) -> dict:
         "reason": top["reason"],
         "severity": top["severity"],
     }
+
+
+def determine_ground_truth_set(state: dict) -> dict:
+    """
+    그날 유효한 이슈 카테고리들의 집합을 반환한다 (Eval용).
+    determine_ground_truth가 최상위 1개를 반환하는 것과 달리,
+    medium 이상 severity 카테고리를 모두 담는다.
+    top_issues 복수화(상한 2)에 대응하는 채점 기준.
+
+    편중은 구조적 특성이므로 집합에서 제외 (top_issues 대상 아님).
+    anchor_set에 라벨링된 날짜면 그것을 우선한다.
+
+    반환:
+    {
+        "categories": set[str],   # 예: {"목표미달", "반품이슈"}
+        "source": "anchor_set" | "rule",
+        "detail": [{"category": str, "severity": str}, ...],
+    }
+    """
+    report_date = state.get("report_date", "")
+    if len(report_date) == 8:
+        date_key = f"{report_date[:4]}-{report_date[4:6]}-{report_date[6:8]}"
+    else:
+        date_key = report_date
+
+    anchor_set = _load_anchor_set()
+    if date_key in anchor_set:
+        entry = anchor_set[date_key]
+        cat = entry.get("top_issue_category", "정상")
+        cat_set = {cat} if cat not in ("정상", "편중") else set()
+        return {
+            "categories": cat_set,
+            "source": "anchor_set",
+            "detail": [{"category": cat, "severity": entry.get("severity", "none")}],
+        }
+
+    # rule 기반 — determine_ground_truth의 candidate 로직과 동일 기준
+    patterns = state.get("patterns", {})
+    detail = []
+
+    # 반품이슈
+    return_anomalies = patterns.get("return_anomalies", [])
+    if return_anomalies:
+        max_mult = max(r.get("multiplier", 0) for r in return_anomalies)
+        detail.append({"category": "반품이슈",
+                       "severity": "high" if max_mult >= 5 else "medium"})
+    else:
+        kpi_summary = state.get("kpi_summary", {})
+        return_only = [p for p in kpi_summary.get("by_product", [])
+                       if p.get("total_sales") == 0 and p.get("zre_qty", 0) > 0]
+        if return_only:
+            total_zre = sum(p["zre_qty"] for p in return_only)
+            detail.append({"category": "반품이슈",
+                           "severity": "high" if total_zre >= 50 else "medium"})
+
+    # 수익성문제 (믹스 상대편차)
+    discount = patterns.get("discount_sensitivity", {})
+    dev = discount.get("margin_deviation")
+    if dev is not None:
+        if dev <= -5:
+            detail.append({"category": "수익성문제", "severity": "high"})
+        elif dev <= -3:
+            detail.append({"category": "수익성문제", "severity": "medium"})
+
+    # 목표미달
+    adt = patterns.get("adjusted_daily_target", {})
+    if adt.get("severity") in ("high", "medium"):
+        detail.append({"category": "목표미달", "severity": adt["severity"]})
+
+    # 추세악화
+    trend = patterns.get("trend_direction_30d", {})
+    if trend.get("acceleration") == "가속하락":
+        detail.append({"category": "추세악화", "severity": "medium"})
+
+    cat_set = set(d["category"] for d in detail)
+    return {
+        "categories": cat_set,
+        "source": "rule",
+        "detail": detail,
+    }

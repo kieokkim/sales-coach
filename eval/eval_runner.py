@@ -29,7 +29,7 @@ from nodes.pattern_nodes import pattern_detect_node
 from nodes.insight_node import insight_node
 from nodes.action_node import action_node
 
-from eval.ground_truth import determine_ground_truth
+from eval.ground_truth import determine_ground_truth_set
 from eval.eval_insight import evaluate_insight
 from eval.eval_action import evaluate_actions
 
@@ -74,14 +74,17 @@ def run_single_date(offline_raw, online_raw, date_str: str) -> dict:
         logger.warning(f"{date_str} 파이프라인 실행 실패: {e}")
         return None
 
-    gt = determine_ground_truth(state)
-    eval1 = evaluate_insight(state, gt)
+    gt_set = determine_ground_truth_set(state)
+    eval1 = evaluate_insight(state, gt_set)
     eval2 = evaluate_actions(state)
 
     return {
         "date": date_str,
-        "ground_truth": gt,
+        "ground_truth_set": gt_set["categories"],
         "eval1_match": eval1["match"],
+        "eval1_precision": eval1["precision"],
+        "eval1_recall": eval1["recall"],
+        "eval1_f1": eval1["f1"],
         "eval1_detail": eval1,
         "eval2_avg_score": eval2["avg_score"],
         "eval2_detail": eval2,
@@ -125,6 +128,10 @@ def main():
     eval1_pass = sum(1 for r in results if r["eval1_match"])
     eval1_accuracy = round(eval1_pass / total * 100, 1)
 
+    avg_precision = round(sum(r["eval1_precision"] for r in results) / total, 3)
+    avg_recall = round(sum(r["eval1_recall"] for r in results) / total, 3)
+    avg_f1 = round(sum(r["eval1_f1"] for r in results) / total, 3)
+
     eval2_scores = [r["eval2_avg_score"] for r in results]
     eval2_avg = round(sum(eval2_scores) / len(eval2_scores), 2)
 
@@ -132,21 +139,26 @@ def main():
 
     print("\n" + "=" * 50)
     print(f"전체 케이스: {total}개")
-    print(f"\n[Eval 1] Insight 정확도: {eval1_accuracy}% ({eval1_pass}/{total})")
+    print(f"\n[Eval 1] 완전일치 정확도: {eval1_accuracy}% ({eval1_pass}/{total})")
+    print(f"[Eval 1] 평균 Precision: {avg_precision} / Recall: {avg_recall} / F1: {avg_f1}")
     print(f"[Eval 2] Action 품질 평균: {eval2_avg} / 4.0")
     print(f"[Eval 3] 종합 점수: {eval3_composite}%")
     print("=" * 50)
 
-    # 실패 케이스 상세 출력 (최대 10개)
+    # 실패 케이스 상세 출력 (집합 비교)
     failures = [r for r in results if not r["eval1_match"]]
     if failures:
-        print(f"\nEval 1 FAIL 케이스 ({len(failures)}개, 최대 10개 표시):")
-        for r in failures[:10]:
-            print(
-                f"  {r['date']}: 정답={r['ground_truth']['category']} "
-                f"({r['ground_truth']['reason']}) / "
-                f"예측='{r['eval1_detail']['predicted_top_issue'][:50]}'"
-            )
+        print(f"\nEval 1 FAIL ({len(failures)}개, 최대 15개):")
+        for r in failures[:15]:
+            d = r["eval1_detail"]
+            fp = d["false_positives"]
+            fn = d["false_negatives"]
+            parts = []
+            if fp:
+                parts.append(f"과다태깅: {fp}")
+            if fn:
+                parts.append(f"놓침: {fn}")
+            print(f"  {r['date']}: 정답={d['ground_truth']} / {', '.join(parts)}")
 
     return results
 
