@@ -5,39 +5,49 @@
 
 ---
 
-## 현재 버전: v1.6 진행 중 (4단계 — 측정 설계 재검토)
+## 현재 버전: v1.6 4단계 완료 (top_issues 복수화 + category 게이트)
 
 ---
 
-## 이번 세션 확정 사항 (v1.6 4단계)
+## 이번 세션 완료 사항 (v1.6 4단계 A/B/C)
 
-### 스키마 재설계 결정 (다음 작업)
-- top_issue 단일 → **top_issues 복수 (상한 2)** — 91일 분포로 확정
-  (eval/count_concurrent_issues.py: 3개 이상 동시발생 0일, 2개 18.7%)
-- insight_node 출력에 **category 필드** 추가:
-  LLM이 자연어로 자유 서술 + 스스로 5개 유형 중 하나로 태깅
-  (반품이슈 / 수익성문제 / 목표미달 / 추세악화 / 편중)
-- **status는 top_issues 개수에서 rule-based 자동도출** (LLM 선언 안 함)
-  0개→정상, 1개→주의, 2개→경보
-- **relation 필드**: 2개일 때만 (독립 / 연결)
-- top_issues 빈 리스트 허용 — "정상인 날"을 정식 답으로 (91일 중 38.5%가 0개)
+### 스키마 재설계 완료
+- top_issue(단일 str) → **top_issues(리스트 0~2개)**, 각 항목 {issue, category}
+- category 6종: 반품이슈 / 수익성문제 / 목표미달 / 추세악화 / 편중 / 기타
+- status는 개수로 rule 자동도출, relation(independent/linked) 2개일 때만
+- 빈 리스트 = 정상인 날 정식 답 (91일 중 38.5%)
+- 스코프 밖 회귀 수정: action_node.py, pages/3_report.py:447 (top_issue 직접참조)
 
-### Eval 재설계 (다음 작업)
-- eval_insight.py: **키워드 매칭 폐기 → 카테고리 집합 비교**
-- 이유: 프롬프트는 "편중 단어 쓰지 마라", 채점기는 "편중 단어 있어야 PASS"
-  → 자기모순. 카테고리 집합 비교로 전환하면 표현 우연이 개입 못 함
-- insight_node 프롬프트 프루닝: 실패한 재강조 문구
-  ("top_issue 작성 전 최종 체크") 제거 — rule 필터가 대신하므로 죽은 지시
+### Eval 재설계 완료
+- eval_insight.py: **키워드 매칭 폐기 → 카테고리 집합 비교** (P/R/F1)
+- ground_truth.py: **determine_ground_truth_set()** 추가 (medium+ 전체 집합 반환)
+  + 목표미달 low 포함 (측정 교정)
 
-### 이번 세션 수정 완료
-- 마진 판정: 절대 30% → **믹스 상대편차** (margin_deviation -3%p medium / -5%p high)
-  COMPANY_PROFILE 마진 기준 28% 베이스라인으로 정정 (Decision 14)
-- ground_truth severity="low" candidate 등록 허용 (배제 버그 수정, Decision 15)
-- insight_node **_enforce_track_a_isolation() 필터** 추가 (Decision 16)
+### category rule 게이트 (핵심)
+- insight_node.**_validate_category_by_rule()**: LLM 태깅을 rule이 최종 검증
+  - 목표미달: adt.severity none이면 제거 (달성/초과인데 태깅한 오독 차단)
+  - 수익성문제: margin_deviation -3%p 초과면 제거
+  - 반품이슈/추세악화: 게이트 미적용 (rule-LLM 대체로 일치)
+- _enforce_track_a_isolation에 통합, 오태깅은 risk_items로 강등(정보 보존)
+
+### 결과
+- Eval 1 완전일치 64.5%→**80.6%**, P 0.758→0.903, R 0.823→0.903, F1 0.774→0.893
+- Eval 2 4.0→3.87 (action JSON 파싱 1건 실패, 구조 무관)
+- Decision 14~17 기록됨
+
+### 핵심 교훈 (Claude Code가 기억할 것)
+- LLM은 조건문을 계산하지 않고 확률적으로 생성함 → 명확한 수치 기준도 어김
+  (달성률 164%인데 목표미달 태깅). 프롬프트 반복 실패 → **rule 게이트가 답**
+- **"서술은 LLM, 분류의 정당성은 rule"** — category 자기선언 구조의 완성형
+- 측정 자기모순 주의: 프롬프트 지시와 채점 기준이 어긋나면 코드 수정이 점수에
+  안 잡힘. Eval 채점 로직도 판단 철학과 정합적이어야 함
 
 ### 미해결 (다음 세션 주의)
+- 0629 폭발: 요일 가중치 아니라 **target_nodes.py:53 daily_required 산식**
+  (잔여 1일 + 월 목표 대폭 미달 → 28억/1일). 잔여 3일 가드는 별개 엣지 방어만.
+  근본 수정은 target 산식 변경이라 별도 결정 필요
 - margin_deviation 91일 0건 발동 — 실전 미검증. 딥디스카운트 합성 케이스 필요
-- 0629 adjusted_daily_target 폭발 버그 (조정목표 28억 이상치)
+- anchor 우선순위 vs rule (0525: rule은 목표미달 정당하나 사람은 반품 우선)
 
 ---
 
