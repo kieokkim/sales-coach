@@ -241,10 +241,17 @@ def build_patterns_context(state: dict) -> str:
 
     if insights:
         lines.append("[AI 인사이트 분석]")
-        if insights.get("top_issue"):
-            lines.append(f"  핵심 이슈: {insights['top_issue']}")
-        if insights.get("top_issue_reason"):
-            lines.append(f"  근거: {insights['top_issue_reason']}")
+        top_issues = insights.get("top_issues", [])
+        if top_issues:
+            lines.append(f"  오늘 주목 이슈 ({len(top_issues)}개):")
+            for it in top_issues:
+                lines.append(f"    - [{it.get('category', '')}] {it.get('issue', '')}")
+            if insights.get("relation") == "linked":
+                lines.append("    (두 이슈는 연결됨 — 한쪽이 다른 쪽의 원인)")
+            elif insights.get("relation") == "independent":
+                lines.append("    (두 이슈는 독립적 — 원인이 서로 다름)")
+        else:
+            lines.append("  오늘 주목 이슈: 특이사항 없음 (정상 범위)")
         if insights.get("forecast_summary"):
             lines.append(f"  월말 예측: {insights['forecast_summary']}")
         if insights.get("trend_summary"):

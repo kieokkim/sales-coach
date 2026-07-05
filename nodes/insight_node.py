@@ -11,62 +11,55 @@ logger = logging.getLogger(__name__)
 # 타겟 사용자·코칭 목적 정의: PERSONA.md 참고
 _SYSTEM_PROMPT = (
     "당신은 리테일 비즈니스 매출 분석 전문가입니다.\n"
-    "제공된 데이터에는 오늘 수치, 비교 기준값, 30일 장기 추세,\n"
-    "요일/프로모션 보정이 적용된 일별 목표가 함께 있습니다.\n\n"
+    "제공된 데이터에는 오늘 수치, 비교 기준값, 30일 추세, 조정 일별 목표가 있습니다.\n\n"
 
-    "## 분석의 두 트랙\n"
-    "트랙 A — 오늘의 신호 (top_issue, risk_items)\n"
-    "  오늘 즉각 대응 가능한 이슈를 찾으세요.\n"
-    "  '오늘 특별히 달라진 것'이어야 합니다.\n"
-    "  매일 반복되는 구조적 특성(브랜드 편중 등)은 포함하지 마세요.\n\n"
-    "트랙 B — 장기 흐름 (trend_summary, opportunity_items)\n"
-    "  30일 추세와 가속도에서 보이는 방향성을 서술하세요.\n"
-    "  우상향/우하향하는 큰 흐름을 놓치지 마세요.\n\n"
+    "## 당신의 임무\n"
+    "본사 담당자가 '오늘 주목해야 할 것'을 골라 건네는 것입니다.\n"
+    "핵심은 '분석'이 아니라 '선별'입니다. 모든 걸 나열하지 말고,\n"
+    "오늘 진짜 중요한 것만 최대 2개까지 고르세요.\n\n"
 
-    "## top_issue 선택 우선순위 (트랙 A)\n"
-    "1순위: 반품 이상\n"
-    "  오늘 반품률이 30일 평균의 3배 이상이거나\n"
-    "  판매 없이 반품만 집중 발생. 품질/CS 이슈 가능성.\n\n"
-    "2순위: 수익성 이상\n"
-    "  오늘 마진율 30% 미만. 할인이 수익을 훼손.\n"
-    "  오늘 측정값이므로 즉각 확인 가능.\n\n"
-    "3순위: 일별 목표 미달\n"
-    "  오늘 순매출(반품 차감)이 요일/프로모션 보정 일별 목표의 80% 미만.\n"
-    "  [조정 일별 목표] 섹션의 수치를 반드시 인용하세요.\n"
-    "  월 누적 달성률(예: HCC 46%)은 top_issue가 아닌 risk_items에 포함.\n\n"
-    "4순위: 추세 가속 하락\n"
-    "  최근 7일이 직전 7일보다 15% 이상 하락. 하락 추세가 빨라지는 신호.\n\n"
-    "※ 위 1~4순위 해당 없을 때만 구조적 특성 언급 가능.\n\n"
+    "## top_issues 작성 규칙\n"
+    "- 오늘 즉각 주목할 이슈를 0~2개 고릅니다.\n"
+    "- 특이사항이 없으면 빈 리스트 []가 정답입니다. 억지로 만들지 마세요.\n"
+    "  (매일 반복되는 구조적 특성인 브랜드 편중은 이슈가 아닙니다)\n"
+    "- 각 이슈는 issue(자연어 서술)와 category(유형 태깅)로 구성합니다.\n"
+    "- issue는 구체적 수치를 포함해 자유롭게 서술하세요.\n"
+    "- category는 반드시 아래 6개 중 하나로 태깅하세요:\n"
+    "  반품이슈 / 수익성문제 / 목표미달 / 추세악화 / 편중 / 기타\n"
+    "  ('기타'는 5개로 안 잡히는 새 이슈에만. 남발 금지)\n\n"
 
-    "## 판단 기준\n"
-    "- 반품률이 평균의 3배 이상이면 품질/CS 이슈로 분류\n"
-    "- 이 회사 정상 마진은 약 28%입니다. 절대값이 낮은 것 자체는 이슈가 아닙니다\n"
-    "- [할인/마진] 섹션의 '마진 편차'가 -3%p 이하면 수익성 이슈로 분류하세요\n"
-    "  (오늘 판매 믹스로 기대되는 마진보다 실제가 낮다 = 할인/가격 훼손)\n"
-    "- 오늘 순매출 < 조정 일별 목표 × 0.8이면 목표 미달로 분류\n"
-    "  (단, 잔여일 < 7이면 × 0.6으로 완화)\n"
-    "- 30일 추세 하락 + 가속하락이면 추세 악화로 분류\n"
-    "- 교차구매 비율 30% 이상이면 브랜드 시너지 기회로 분류\n"
-    "- 할인율 15% 이상 + 마진율 낮은 제품은 즉시 검토 대상\n\n"
+    "## 카테고리별 판정 기준\n"
+    "- 반품이슈: 오늘 반품률이 30일 평균의 3배 이상이거나 판매 없이 반품만 집중 발생\n"
+    "- 수익성문제: [할인/마진] 섹션의 '마진 편차'가 -3%p 이하\n"
+    "  (이 회사 정상 마진은 약 28%. 절대값이 낮은 것 자체는 이슈가 아님.\n"
+    "   오늘 판매 믹스로 기대되는 마진보다 실제가 낮다 = 할인/가격 훼손)\n"
+    "- 목표미달: 오늘 순매출(반품 차감)이 조정 일별 목표의 80% 미만\n"
+    "  (잔여일 < 7이면 60% 미만). [조정 일별 목표] 섹션 수치를 인용하세요.\n"
+    "  ※ 월 누적 달성률(예: HCC 46%)은 top_issues가 아닌 risk_items에 넣으세요.\n"
+    "     매일 거의 안 바뀌는 구조적 수치이므로 '오늘의 이슈'가 아닙니다.\n"
+    "- 추세악화: 30일 추세 하락 + 최근 7일이 직전 7일보다 15% 이상 가속 하락\n"
+    "- 편중: 특정 브랜드/카테고리 비중 지배. 단, 매일 반복되면 이슈 아님.\n\n"
 
-    "## top_issue 작성 전 최종 체크 (반드시 통과해야 함)\n"
-    "- top_issue 문장에 '월', '누적', '달성률'이라는 단어가 들어가면서\n"
-    "  동시에 특정 채널명(HCC 등)만 언급한다면, 그것은 트랙 A가 아니라\n"
-    "  risk_items 대상입니다. top_issue에서 제외하고 risk_items로 옮기세요.\n"
-    "- [조정 일별 목표] 섹션에 오늘 수치가 있다면, 채널별 월 누적 수치보다\n"
-    "  이것을 우선하세요. '오늘' 수치가 없으면 목표 관련 이슈는 아예\n"
-    "  top_issue 후보에서 제외하고 risk_items로만 다루세요.\n\n"
+    "## relation (이슈가 2개일 때만)\n"
+    "- linked: 한 이슈가 다른 이슈의 원인 (예: 할인 과다 → 마진 훼손 + 목표 미달)\n"
+    "- independent: 두 이슈의 원인이 서로 다름\n"
+    "- 이슈가 0~1개면 null\n\n"
 
     "반드시 아래 JSON 형식으로만 응답하세요 (마크다운 코드블록 없이):\n"
     "{\n"
-    '  "top_issue": "오늘 가장 시급한 이슈 (구체적 수치, 구조적 특성 제외)",\n'
-    '  "top_issue_reason": "왜 시급한지 — 7일/30일 평균 또는 조정 목표와 비교",\n'
+    '  "top_issues": [\n'
+    '    {"issue": "구체적 수치 포함 서술", "category": "6개 중 하나"},\n'
+    '    {"issue": "...", "category": "..."}\n'
+    "  ],\n"
+    '  "relation": "independent | linked | null (이슈 0~1개면 null)",\n'
     '  "forecast_summary": "월말 예측 달성률 % 포함 한 문장",\n'
-    '  "trend_summary": "30일 방향성 + 가속도 포함 한 문장",\n'
-    '  "promo_insight": "프로모션 효과 분석 (없으면 null)",\n'
-    '  "risk_items": ["채널별 달성률 저조 등 오늘 당장 못 바꾸는 리스크", "..."],\n'
+    '  "trend_summary": "30일 방향성 + 가속도 한 문장",\n'
+    '  "promo_insight": "프로모션 효과 (없으면 null)",\n'
+    '  "risk_items": ["채널별 월 누적 저조 등 오늘 못 바꾸는 리스크", "..."],\n'
     '  "opportunity_items": ["오늘 데이터 기반 기회", "..."]\n'
-    "}"
+    "}\n\n"
+    "top_issues가 빈 리스트면 relation은 null, "
+    "risk_items와 trend_summary는 그대로 작성하세요."
 )
 
 
@@ -109,40 +102,36 @@ def _is_monthly_cumulative_issue(top_issue: str) -> bool:
 
 def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
     """
-    insights['top_issue']가 월 누적+채널 패턴이면 risk_items로 옮기고
-    다음으로 유효한 트랙A 신호(반품 이상 > 마진 편차 > 목표 페이스)로 대체한다.
+    top_issues의 각 항목을 검사해 '월 누적+채널명' 패턴이면 제거하고
+    risk_items로 이동한다. category가 이미 있으므로 문자열 패턴 매칭은
+    보조 안전장치로만 사용한다.
     """
-    top_issue = insights.get("top_issue", "")
-    if not _is_monthly_cumulative_issue(top_issue):
+    top_issues = insights.get("top_issues", [])
+    if not isinstance(top_issues, list):
+        logger.warning("top_issues가 리스트가 아님, 빈 리스트로 초기화")
+        insights["top_issues"] = []
         return insights
 
-    risk_items = list(insights.get("risk_items") or [])
-    risk_items.insert(0, top_issue)
+    kept = []
+    risk_items = list(insights.get("risk_items", []))
+
+    for item in top_issues:
+        if not isinstance(item, dict):
+            continue
+        issue_text = item.get("issue", "")
+        # 월 누적+채널명 패턴이면 격리 (보조 안전장치)
+        if _is_monthly_cumulative_issue(issue_text):
+            logger.info(f"트랙A 격리: '{issue_text[:40]}...' → risk_items")
+            risk_items.insert(0, issue_text)
+        else:
+            kept.append(item)
+
+    insights["top_issues"] = kept[:2]  # 상한 2 강제
     insights["risk_items"] = risk_items
 
-    return_anomalies = patterns.get("return_anomalies", [])
-    discount = patterns.get("discount_sensitivity", {})
-    adt = patterns.get("adjusted_daily_target", {})
-
-    if return_anomalies:
-        r = return_anomalies[0]
-        insights["top_issue"] = (
-            f"{r['product_name']} 반품률 이상 — "
-            f"오늘 {r['return_rate_today']:.1%}, 평균의 {r['multiplier']}배"
-        )
-    elif discount.get("margin_deviation") is not None and discount["margin_deviation"] <= -3:
-        insights["top_issue"] = (
-            f"오늘 마진이 판매 믹스 기대치보다 "
-            f"{abs(discount['margin_deviation'])}%p 낮음 — 할인/가격 이슈 추정"
-        )
-    elif adt.get("severity") in ("high", "medium", "low") and adt.get("achievement_vs_adjusted") is not None:
-        insights["top_issue"] = (
-            f"오늘 순매출이 조정 일별 목표의 "
-            f"{adt['achievement_vs_adjusted']}%에 불과 — 목표 페이스 미달"
-        )
-    else:
-        insights["top_issue"] = "오늘 특이 이슈 없음 — 정상 범위"
-        insights["top_issue_reason"] = "반품/마진/목표 페이스 모두 정상 범위 내"
+    # 개수에 따라 relation 정합성 보정
+    if len(insights["top_issues"]) < 2:
+        insights["relation"] = None
 
     return insights
 
@@ -200,9 +189,8 @@ def insight_node(state: dict) -> dict:
         raw = re.sub(r',\s*([}\]])', r'\1', raw)
         insights = json.loads(raw)
         insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
-        logger.info(
-            f"insight_node 완료: top_issue={insights.get('top_issue', '')[:30]}..."
-        )
+        issue_count = len(insights.get("top_issues", []))
+        logger.info(f"insight_node 완료: top_issues {issue_count}개")
     except Exception as e:
         logger.warning(f"insight_node 실패: {e}")
         errors.append(f"insight_node 실패: {e}")

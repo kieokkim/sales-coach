@@ -444,8 +444,19 @@ if state.get("llm_commentary"):
         )
 
         # 카드 1: 핵심 이슈
-        _issue = _insights.get("top_issue") or "이상 징후 없음"
-        _reason = _insights.get("top_issue_reason", "")
+        _top_issues = _insights.get("top_issues", [])
+        if _top_issues:
+            _issue = " / ".join(
+                f"[{it.get('category', '')}] {it.get('issue', '')}"
+                for it in _top_issues
+            )
+            _rel = _insights.get("relation")
+            _reason = ("두 이슈 연결됨 — 한쪽이 다른 쪽 원인" if _rel == "linked"
+                       else "두 이슈 독립적 — 원인 다름" if _rel == "independent"
+                       else "")
+        else:
+            _issue = "이상 징후 없음"
+            _reason = ""
         _reason_html = f'<div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{_reason}</div>' if _reason else ""
 
         # 카드 2: 월말 예측

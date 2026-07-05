@@ -46,10 +46,11 @@ def _build_action_context(state: dict) -> str:
 
     if insights:
         lines.append("[인사이트]")
-        if insights.get("top_issue"):
-            lines.append(f"  핵심 이슈: {insights['top_issue']}")
-        if insights.get("top_issue_reason"):
-            lines.append(f"  근거: {insights['top_issue_reason']}")
+        top_issues = insights.get("top_issues", [])
+        if top_issues:
+            lines.append("  핵심 이슈:")
+            for it in top_issues:
+                lines.append(f"    - [{it.get('category', '')}] {it.get('issue', '')}")
         if insights.get("forecast_summary"):
             lines.append(f"  월말 예측: {insights['forecast_summary']}")
         if insights.get("trend_summary"):
