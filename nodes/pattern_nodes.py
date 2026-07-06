@@ -103,7 +103,41 @@ def _category_movers(state: dict) -> list:
     return movers
 
 
+# Wilson score interval 신뢰수준. 1.96 = 95% (통계 표준값, 도메인 문턱 아님).
+WILSON_Z_95 = 1.96
+
+
+def _wilson_lower_bound(successes: int, n: int, z: float = WILSON_Z_95) -> float:
+    """Wilson score interval 하한. 관측 비율의 불확실성 범위 하단."""
+    if n == 0:
+        return 0.0
+    p = successes / n
+    denom = 1 + z**2 / n
+    center = p + z**2 / (2 * n)
+    margin = z * ((p * (1 - p) / n + z**2 / (4 * n**2)) ** 0.5)
+    return max(0.0, (center - margin) / denom)
+
+
+def _wilson_upper_bound(successes: int, n: int, z: float = WILSON_Z_95) -> float:
+    """Wilson score interval 상한. 관측 비율의 불확실성 범위 상단."""
+    if n == 0:
+        return 0.0
+    p = successes / n
+    denom = 1 + z**2 / n
+    center = p + z**2 / (2 * n)
+    margin = z * ((p * (1 - p) / n + z**2 / (4 * n**2)) ** 0.5)
+    return min(1.0, (center + margin) / denom)
+
+
 def _return_anomalies(state: dict, report_date_db: str) -> list:
+    """
+    제품별 반품 이상 탐지.
+
+    절대 문턱(배수 3배/반품률 10%) 대신 Wilson score interval을 쓴다.
+    오늘 반품률 신뢰구간 하한이 평소(30일) 반품률 신뢰구간 상한을 넘을 때만
+    이상으로 판정한다 (두 구간 비중첩 = 통계적으로 유의하게 높음).
+    표본이 작으면 구간이 넓어져 자동으로 판정 보류되므로, 소표본 오탐이 없다.
+    """
     by_product = state.get("kpi_summary", {}).get("by_product", [])
     if not by_product:
         return []
@@ -122,32 +156,41 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
                 (report_date_db, report_date_db),
             )
             rows = cursor.fetchall()
-            avg_rates = {
-                r[0]: (r[2] / (r[1] + r[2]) if (r[1] + r[2]) > 0 else 0)
-                for r in rows
-            }
+            # code -> (hist_returns, hist_total)
+            hist_map = {r[0]: (r[2], r[1] + r[2]) for r in rows}
     except Exception as e:
         logger.warning(f"return_anomalies DB 조회 실패: {e}")
-        avg_rates = {}
+        hist_map = {}
 
     anomalies = []
     for prod in by_product:
         code = prod["product_code"]
-        qty = prod["qty"]
-        zre = prod["zre_qty"]
-        total = qty + zre
-        if total == 0:
+        today_returns = prod["zre_qty"]
+        today_total = prod["qty"] + prod["zre_qty"]
+        hist_returns, hist_total = hist_map.get(code, (0, 0))
+
+        # 표본이 아예 없으면 판정 불가 (수학적 필수 게이트 — 매직넘버 아님)
+        if today_total == 0 or hist_total == 0:
             continue
-        today_rate = zre / total
-        avg_rate = avg_rates.get(code, 0)
-        multiplier = round(today_rate / avg_rate, 1) if avg_rate > 0 else 0.0
-        flag = multiplier >= 3 and today_rate > 0.1
-        if flag:
+
+        today_lower = _wilson_lower_bound(today_returns, today_total)
+        hist_upper = _wilson_upper_bound(hist_returns, hist_total)
+
+        today_rate = today_returns / today_total
+        hist_rate = hist_returns / hist_total
+
+        # 오늘 반품률 하한이 평소 반품률 상한을 넘으면 = 통계적으로 유의
+        if today_lower > hist_upper:
+            multiplier = round(today_rate / hist_rate, 1) if hist_rate > 0 else 0.0
             anomalies.append({
                 "product_name": prod["product_name"],
-                "return_rate_today": round(today_rate, 3),
-                "return_rate_avg": round(avg_rate, 3),
-                "multiplier": multiplier,
+                "return_rate_today": round(today_rate, 4),
+                "return_rate_avg": round(hist_rate, 4),
+                "today_lower_bound": round(today_lower, 4),
+                "hist_upper_bound": round(hist_upper, 4),
+                "today_sample": today_total,
+                "multiplier": multiplier,  # 참고용 (판정엔 안 씀)
+                "significance": "통계적 유의 (신뢰구간 비중첩)",
                 "flag": True,
             })
     return anomalies

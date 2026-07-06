@@ -2,6 +2,49 @@
 
 ---
 
+### Decision 18: 반품 판정을 절대 문턱에서 Wilson score interval로 — 통계화 1호 (회귀 발생, 재검토 필요)
+
+**결정:** 반품 이상 탐지의 매직넘버(배수 3배, 반품률 10%, 5배, 50건)를 제거하고
+Wilson score interval(표본 크기 자동 반영)로 전환. + 선행 단위 혼합 버그 수정.
+SalesCoach를 "이 데이터 전용"에서 "어떤 회사 데이터든 자동 캘리브레이션"으로
+격상하려는 첫 통계화 시도. **단 5월 eval이 회귀하여 재검토 대상으로 남긴다.**
+
+**발견 과정:**
+1. anchor_set 라벨링 중 0501 코트원 블랙 오탐 발견 (반품률 20%, 12.9배)
+2. 원인: 그날 판매 8개 중 반품 2건 → 소표본 비율 요동 (반품 ±1건에 배수 7.2~17.6)
+3. 부수 발견 — `zre_qty`가 "행 개수(.size())"로 집계돼 판매수량합과 단위 혼합
+   (분자=반품 행수, 분모=판매 수량합). Wilson 전에 이것부터 수정.
+4. audit로 전체 매직넘버 전수조사 → 절대 문턱이 도메인 종속임 확인
+
+**구현:**
+- kpi_nodes.py — zre_qty 단위 혼합 버그 수정 (행개수 → 수량합)
+- pattern_nodes.py — _wilson_lower_bound/_upper_bound 추가 (z=1.96, 95% 표준값),
+  _return_anomalies를 "오늘 반품률 신뢰구간 하한 > 평소 신뢰구간 상한" 판정으로 재설계
+- eval/ground_truth.py — 반품 severity를 통계적 격차(_return_severity)로: high= 하한이
+  상한의 2배 이상, else medium. 5배/50건 매직넘버 제거 (return_only 절대경로만 유지)
+- qa_nodes.py / context_builder.py / action_node.py — zre_qty "건수→수량" 문구 동기화
+- DB 전체 재적재 (salescoach.db) — 저장된 zre_qty를 수량합으로 갱신 (혼합 방지)
+
+**결과 — 회귀 (정직 기록):**
+- 5월 Eval 80.6% → **64.5% (−16pt)**, FAIL 6 → 11건, Recall 0.887 → 0.769
+- **목표였던 0501 코트원 오탐이 제거되지 않음** (오히려 anomaly 3건으로 증가)
+- 원인: Wilson은 "과거 baseline이 대표본·저율"이면 hist_upper가 매우 타이트(5.15%)해져,
+  오늘 소표본이어도 관측률이 극단(20%, 100%)이면 today_lower가 그 상한을 넘어 flag됨.
+  예: HCC Camp Chair 2/2=100% → Wilson 하한 34% > 상한 12% → 걸림.
+  Wilson 단독으로는 극단관측·초소표본을 충분히 penalize 못 함.
+- 단위 수정이 rule GT의 반품 flag 제품·일자를 광범위 변동시켜, LLM 예측과의
+  일치율이 떨어짐 (놓침 다수). 측정 정상화가 아닌 실제 회귀.
+
+**교훈:**
+1. 매직넘버를 통계로 바꾸는 방향은 옳으나, Wilson score interval 단독은
+   소표본 오탐 억제에 불충분하다 — 과거 baseline이 tight-low면 오늘 소표본도 유의로 걸린다.
+2. 통계적 유의성 ≠ 실무적 유의성. "today_lower 최소 분모 게이트" 또는
+   effect-size 병용 등 보완이 필요하다 (Decision 19 후보).
+3. GT 정의를 바꾸면 eval 점수 변화는 품질개선/측정정상화/회귀가 뒤섞인다.
+   변경 전후를 같은 anchor로 재라벨링해야 순수 신호가 보인다.
+
+---
+
 ### Decision 17: category rule 게이트 — LLM 오태깅을 rule로 강제 차단
 
 **결정:** LLM이 태깅한 category를 rule이 최종 검증해 오태깅을 제거.

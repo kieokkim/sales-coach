@@ -26,7 +26,7 @@ def get_schema_context() -> str:
 - report_date (TEXT, YYYY-MM-DD)
 - product_code, product_name (TEXT)
 - category_l1, category_l2, category_l3 (TEXT)
-- qty (판매수량), revenue (매출), zre_qty (반품건수)
+- qty (판매수량), revenue (매출), zre_qty (반품수량)
 
 중요 규칙:
 1. 두 테이블 모두 날짜당 여러 행이 존재합니다 (플랫폼별/제품별로 행이 나뉨).
@@ -34,7 +34,7 @@ def get_schema_context() -> str:
    SUM() 없이 조회하면 한 행만 반환되어 틀린 값이 됩니다.
 2. 제품명(예: V.TARP, V.TAP)이 질문에 나오면 daily_product 테이블을 사용하세요.
    daily_kpi의 platform 컬럼에는 제품명이 들어가지 않습니다.
-3. 반품 건수 컬럼명은 정확히 zre_qty 입니다 (zre가 아님).
+3. 반품 수량 컬럼명은 정확히 zre_qty 입니다 (zre가 아님).
 4. 제품명은 LIKE로 부분 일치 검색하세요 (예: WHERE product_name LIKE '%V.TARP%').
    정확히 일치하는 표기를 모를 수 있기 때문입니다.
 5. "이번달" 같은 기간 질문은 report_date LIKE 'YYYY-MM%' 형식을 사용하세요.
@@ -87,7 +87,7 @@ def generate_sql(question: str, report_date: str) -> str:
         f"A: SELECT SUM(total_revenue) as total_revenue FROM daily_kpi WHERE report_date = '{report_date}'\n\n"
         "Q: 이번달 V.TARP 판매량은?\n"
         f"A: SELECT SUM(qty) as total_qty FROM daily_product WHERE report_date LIKE '{report_date[:7]}%' AND product_name LIKE '%V.TARP%'\n\n"
-        "Q: 이번달 반품 건수는?\n"
+        "Q: 이번달 반품 수량은?\n"
         f"A: SELECT SUM(zre_qty) as total_zre FROM daily_product WHERE report_date LIKE '{report_date[:7]}%'\n"
     )
 

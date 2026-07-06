@@ -269,7 +269,7 @@ def build_patterns_context(state: dict) -> str:
         lines.append("[오늘 반품만 발생한 제품 — 즉각 확인 필요]")
         for p in return_only:
             lines.append(
-                f"  {p['product_name']}: 반품 {p['zre_qty']}건 "
+                f"  {p['product_name']}: 반품 {p['zre_qty']}개 "
                 f"(오늘 신규 판매 없음, 이전 구매 반품 집중)"
             )
         lines.append("")

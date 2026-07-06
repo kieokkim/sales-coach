@@ -29,6 +29,21 @@ def _load_anchor_set() -> dict:
         return {}
 
 
+def _return_severity(return_anomalies: list) -> str:
+    """
+    반품이슈 severity를 통계적 격차로 판정한다 (매직넘버 없음).
+    high: 오늘 반품률 신뢰구간 하한이 평소 상한의 2배 이상 (큰 격차)
+    medium: 유의하나 격차가 그보다 작음
+    (anomaly는 today_lower > hist_upper일 때만 생성되므로 최소 medium)
+    """
+    for a in return_anomalies:
+        lower = a.get("today_lower_bound", 0)
+        upper = a.get("hist_upper_bound", 0)
+        if upper > 0 and lower >= upper * 2:
+            return "high"
+    return "medium"
+
+
 def determine_ground_truth(state: dict) -> dict:
     """
     state(kpi_compute_node, pattern_detect_node까지 실행된 상태)를 받아
@@ -65,17 +80,17 @@ def determine_ground_truth(state: dict) -> dict:
 
     candidates = []
 
-    # 1. 반품 이상 (1순위)
+    # 1. 반품 이상 (1순위) — Wilson 통계 격차 기반 severity
     return_anomalies = patterns.get("return_anomalies", [])
     if return_anomalies:
         max_multiplier = max(r.get("multiplier", 0) for r in return_anomalies)
         candidates.append({
             "category": "반품이슈",
             "reason": (
-                f"{len(return_anomalies)}개 제품 반품률 이상, "
-                f"최대 평균의 {max_multiplier}배"
+                f"{len(return_anomalies)}개 제품 반품률 통계적 유의 상승 "
+                f"(신뢰구간 비중첩), 최대 평균의 {max_multiplier}배"
             ),
-            "severity": "high" if max_multiplier >= 5 else "medium",
+            "severity": _return_severity(return_anomalies),
             "priority": 1,
         })
 
@@ -232,12 +247,11 @@ def determine_ground_truth_set(state: dict) -> dict:
     patterns = state.get("patterns", {})
     detail = []
 
-    # 반품이슈
+    # 반품이슈 — Wilson 통계 격차 기반 severity
     return_anomalies = patterns.get("return_anomalies", [])
     if return_anomalies:
-        max_mult = max(r.get("multiplier", 0) for r in return_anomalies)
         detail.append({"category": "반품이슈",
-                       "severity": "high" if max_mult >= 5 else "medium"})
+                       "severity": _return_severity(return_anomalies)})
     else:
         kpi_summary = state.get("kpi_summary", {})
         return_only = [p for p in kpi_summary.get("by_product", [])

@@ -76,11 +76,14 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
     zor = df[df["오더유형"] == "ZOR"].copy()
     zre = df[df["오더유형"] == "ZRE"].copy()
 
-    # ZRE 건수 미리 집계
-    zre_count = (
-        zre.groupby("제품코드").size().to_dict()
-        if not zre.empty else {}
-    )
+    # ZRE 반품 수량 미리 집계 (행 개수가 아닌 수량 합 — 단위 일치)
+    if not zre.empty and "수량" in zre.columns:
+        zre_count = zre.groupby("제품코드")["수량"].sum().astype(int).to_dict()
+    elif not zre.empty:
+        logger.warning("ZRE에 수량 컬럼 없음, 행 개수로 대체")
+        zre_count = zre.groupby("제품코드").size().to_dict()
+    else:
+        zre_count = {}
 
     group_cols = ["제품코드", "제품명"]
     if "소분류내역" in df.columns:
@@ -117,7 +120,7 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
                     "category_l3": str(keys[2]) if len(keys) > 2 else "",
                     "qty": 0,
                     "total_sales": 0,
-                    "zre_qty": int(len(grp)),
+                    "zre_qty": int(grp["수량"].sum()) if "수량" in grp.columns else int(len(grp)),
                 })
 
     # ZOR 제품: total_sales 내림차순 top_n개
