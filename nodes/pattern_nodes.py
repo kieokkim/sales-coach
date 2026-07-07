@@ -2,10 +2,9 @@ import logging
 from calendar import monthrange
 from datetime import datetime, timedelta
 from itertools import combinations
-
 import pandas as pd
 
-from config import MONTHLY_TARGETS, PROMOTIONS
+from config import MONTHLY_TARGETS, PROMOTIONS, DOMAIN_PARAMS, STAT_Z_95
 from db import get_db
 
 logger = logging.getLogger(__name__)
@@ -103,12 +102,8 @@ def _category_movers(state: dict) -> list:
     return movers
 
 
-# Wilson score interval 신뢰수준. 1.96 = 95% (통계 표준값, 도메인 문턱 아님).
-WILSON_Z_95 = 1.96
-
-
-def _wilson_lower_bound(successes: int, n: int, z: float = WILSON_Z_95) -> float:
-    """Wilson score interval 하한. 관측 비율의 불확실성 범위 하단."""
+def _wilson_lower_bound(successes: int, n: int, z: float = STAT_Z_95) -> float:
+    """Wilson score interval 하한. 표본 작으면 넓게 퍼져 하한이 낮아진다."""
     if n == 0:
         return 0.0
     p = successes / n
@@ -118,29 +113,23 @@ def _wilson_lower_bound(successes: int, n: int, z: float = WILSON_Z_95) -> float
     return max(0.0, (center - margin) / denom)
 
 
-def _wilson_upper_bound(successes: int, n: int, z: float = WILSON_Z_95) -> float:
-    """Wilson score interval 상한. 관측 비율의 불확실성 범위 상단."""
-    if n == 0:
-        return 0.0
-    p = successes / n
-    denom = 1 + z**2 / n
-    center = p + z**2 / (2 * n)
-    margin = z * ((p * (1 - p) / n + z**2 / (4 * n**2)) ** 0.5)
-    return min(1.0, (center + margin) / denom)
-
-
 def _return_anomalies(state: dict, report_date_db: str) -> list:
     """
-    제품별 반품 이상 탐지.
+    제품별 반품 이상 탐지 = 유의성(Wilson) AND 효과크기(절대건수 하한).
 
-    절대 문턱(배수 3배/반품률 10%) 대신 Wilson score interval을 쓴다.
-    오늘 반품률 신뢰구간 하한이 평소(30일) 반품률 신뢰구간 상한을 넘을 때만
-    이상으로 판정한다 (두 구간 비중첩 = 통계적으로 유의하게 높음).
-    표본이 작으면 구간이 넓어져 자동으로 판정 보류되므로, 소표본 오탐이 없다.
+    - 유의성: 오늘 반품률 Wilson 신뢰구간 하한이 평소(30일) 점추정을 넘는가.
+      소표본이면 하한이 넓게 퍼져 자동 보류되어 극단 비율 오탐을 막는다.
+    - 효과크기: 오늘 반품 절대수량이 return_min_count 이상인가.
+      통계적으로 유의해도(20% vs 2%) 절대량이 사소하면(2건) 운영상 노이즈다.
+      Wilson 단독으로는 못 거르는 소량 반품 오탐(0501 케이스)을 이 게이트가 지운다.
+    - warm-up: 과거 기준선이 min_baseline_days 미만이면 평소값이 불안정 → 판정 보류.
     """
     by_product = state.get("kpi_summary", {}).get("by_product", [])
     if not by_product:
         return []
+
+    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
+    min_days = DOMAIN_PARAMS.get("min_baseline_days", 14)
 
     try:
         with get_db() as conn:
@@ -148,7 +137,8 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
                 """
                 SELECT product_code,
                        SUM(qty) as total_qty,
-                       SUM(zre_qty) as total_zre
+                       SUM(zre_qty) as total_zre,
+                       COUNT(DISTINCT report_date) as hist_days
                 FROM daily_product
                 WHERE report_date >= date(?, '-30 days') AND report_date < ?
                 GROUP BY product_code
@@ -156,8 +146,8 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
                 (report_date_db, report_date_db),
             )
             rows = cursor.fetchall()
-            # code -> (hist_returns, hist_total)
-            hist_map = {r[0]: (r[2], r[1] + r[2]) for r in rows}
+            # code -> (hist_returns, hist_total, hist_days)
+            hist_map = {r[0]: (r[2], r[1] + r[2], r[3]) for r in rows}
     except Exception as e:
         logger.warning(f"return_anomalies DB 조회 실패: {e}")
         hist_map = {}
@@ -167,30 +157,40 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
         code = prod["product_code"]
         today_returns = prod["zre_qty"]
         today_total = prod["qty"] + prod["zre_qty"]
-        hist_returns, hist_total = hist_map.get(code, (0, 0))
+        hist_returns, hist_total, hist_days = hist_map.get(code, (0, 0, 0))
 
         # 표본이 아예 없으면 판정 불가 (수학적 필수 게이트 — 매직넘버 아님)
         if today_total == 0 or hist_total == 0:
             continue
 
+        # warm-up 게이트: 과거 기준선 부족하면 평소값 불안정 → 판정 보류
+        if hist_days < min_days:
+            logger.info(
+                f"{prod['product_name']}: baseline {hist_days}일 < {min_days}일, 판정 보류"
+            )
+            continue
+
+        # 효과크기 게이트: 오늘 반품 절대수량 하한 (소량 반품 오탐 제거) ← 핵심
+        if today_returns < min_count:
+            continue
+
+        hist_rate = hist_returns / hist_total  # 평소 점추정 (기준선)
         today_lower = _wilson_lower_bound(today_returns, today_total)
-        hist_upper = _wilson_upper_bound(hist_returns, hist_total)
-
         today_rate = today_returns / today_total
-        hist_rate = hist_returns / hist_total
 
-        # 오늘 반품률 하한이 평소 반품률 상한을 넘으면 = 통계적으로 유의
-        if today_lower > hist_upper:
+        # 유의성: 오늘 반품률 신뢰구간 하한이 평소 평균을 넘으면 유의하게 높음
+        if today_lower > hist_rate:
             multiplier = round(today_rate / hist_rate, 1) if hist_rate > 0 else 0.0
             anomalies.append({
                 "product_name": prod["product_name"],
                 "return_rate_today": round(today_rate, 4),
                 "return_rate_avg": round(hist_rate, 4),
                 "today_lower_bound": round(today_lower, 4),
-                "hist_upper_bound": round(hist_upper, 4),
+                "hist_rate": round(hist_rate, 4),
+                "today_returns": today_returns,
                 "today_sample": today_total,
                 "multiplier": multiplier,  # 참고용 (판정엔 안 씀)
-                "significance": "통계적 유의 (신뢰구간 비중첩)",
+                "significance": "Wilson유의+절대건수충족",
                 "flag": True,
             })
     return anomalies

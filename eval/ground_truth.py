@@ -12,6 +12,8 @@ import json
 import logging
 import os
 
+from config import DOMAIN_PARAMS
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,15 +33,14 @@ def _load_anchor_set() -> dict:
 
 def _return_severity(return_anomalies: list) -> str:
     """
-    반품이슈 severity를 통계적 격차로 판정한다 (매직넘버 없음).
-    high: 오늘 반품률 신뢰구간 하한이 평소 상한의 2배 이상 (큰 격차)
-    medium: 유의하나 격차가 그보다 작음
-    (anomaly는 today_lower > hist_upper일 때만 생성되므로 최소 medium)
+    반품이슈 severity를 반품 절대수량 규모로 판정한다.
+    anomaly는 이미 Wilson유의+절대건수(min_count) 게이트를 통과했으므로 최소 medium.
+    high: 오늘 반품 절대수량이 min_count의 5배 이상 (대량 반품 = 즉각 대응)
+    medium: 그 외 (유의하나 규모가 그보다 작음)
     """
+    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
     for a in return_anomalies:
-        lower = a.get("today_lower_bound", 0)
-        upper = a.get("hist_upper_bound", 0)
-        if upper > 0 and lower >= upper * 2:
+        if a.get("today_returns", 0) >= min_count * 5:
             return "high"
     return "medium"
 
