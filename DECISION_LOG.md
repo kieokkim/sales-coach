@@ -2,6 +2,45 @@
 
 ---
 
+### Decision 20: 반품 return_only 경로 효과크기 게이트 — Decision 18 대칭 완성
+
+**결정:** 반품이슈 판정의 return_only 경로(판매 0 + 반품만)에도 return_min_count
+게이트를 적용. Decision 18이 효과크기 게이트를 Wilson 비율 경로에만 넣고 절대
+경로엔 빠뜨린 대칭 결손 수정. 새 파라미터 없이 기존 return_min_count(=5) 재사용.
+
+**발견 과정 (추세 통계화 후 남은 FAIL 성격 판단에서):**
+1. 5월 FAIL 2건 중 0517 = 반품 놓침. GT는 반품이슈, LLM은 정상.
+2. 추적 — 0517 반품은 return_only 1건. Wilson 비율 경로(0건)가 아니라
+   return_only 절대 경로에서 GT 반품이슈가 나옴.
+3. return_only 경로는 `>=50건 high, else medium` — 효과크기 게이트 전무.
+   1건도 medium 반품이슈로 라벨. LLM은 1건을 노이즈로 맞게 무시 → GT 과라벨.
+4. 재발성 전수 — return_only 소량(<50건) 날 91일 중 3일(0501:2건, 0517:1건,
+   0615:1건). 구조적 결함 확정(케이스 특수성 아님).
+
+**구현:**
+- eval/ground_truth.py — determine_ground_truth / determine_ground_truth_set
+  두 경로 모두 return_only 리스트에 `zre_qty >= return_min_count` 조건 추가.
+  return_only는 비율 미정의 → Wilson 없이 절대건수만(대칭의 절반).
+- COMPANY_PROFILE.md — return_min_count 근거에 "적용 경로 2곳(대칭)" 명시.
+
+**결과:**
+- 0517/0501/0615 소량 return_only → GT에서 제거(∅). 0525 V.TARP 592건은 유지.
+- 6월 Eval **100%** (30/30, F1 1.0) — 0615 오탐 소멸. 5월 전용 튜닝 아님 독립검증.
+- 5월 Eval 90.3% (28/31). 이전 93.5 대비 하락처럼 보이나 batch FAIL 3건 중
+  0501·0511은 fresh 재실행 시 GT·LLM 둘 다 ∅로 PASS = LLM 비결정성 노이즈.
+  0517(구조 FAIL)은 일관 해소, 0525(목표 과다)는 예고된 보류 케이스.
+
+**교훈:**
+1. **결정론적 GT 변경의 효과는 LLM 섞인 완전일치 점수가 아니라 GT 자체로 검증한다.**
+   label_card(GT 결정론)로 0517/0501/0615 ∅ 확인 = 구조 개선 확증. 완전일치
+   90.3~93.5 변동은 LLM run 분산이지 회귀 아님. Decision 19의 "측정/판단 분리" 재확인.
+2. Decision 18에서 게이트를 한 경로에만 넣은 것이 대칭 결손을 남겼다 — 같은
+   개념(효과크기)은 모든 판정 경로에 동시 적용해야 GT 일관성이 샌다.
+3. 6월(독립 기간) 100%가 5월 과적합 아님의 증거. 구조 개선은 학습기간 밖에서
+   재발 오탐이 사라져야 진짜다.
+
+---
+
 ### Decision 19: 추세악화 통계화 — 가속 z-score + 방향 게이트 (Eval 67.7→93.5%, 실체는 방향 게이트)
 
 **결정:** 추세악화 판정의 절대 문턱(가속 -15%)을 제거하고 가속 z-score
