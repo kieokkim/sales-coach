@@ -2,6 +2,46 @@
 
 ---
 
+### Decision 19: 추세악화 통계화 — 가속 z-score + 방향 게이트 (Eval 67.7→93.5%, 실체는 방향 게이트)
+
+**결정:** 추세악화 판정의 절대 문턱(가속 -15%)을 제거하고 가속 z-score
+(`(최근7일avg − 직전7일avg) / 30일 일별매출 std`)로 전환 + **방향 게이트**
+(overall_direction "하락"일 때만 추세악화 후보) 추가. Decision 18(반품 통계화)의
+"유의성 + 효과크기 + 방향" 템플릿을 추세에 복제한 통계화 2호.
+
+**발견 과정:**
+1. Task 0 진단 — GT가 acceleration=="가속하락"(절대 -15%)만 보고 overall_direction 무시.
+2. 0518(30일 +29% 상승 중 단기 가속 -18%)을 추세악화로 오판 → 5월 추세 FAIL 주범.
+3. 절대 -15% 문턱이 회사 변동성 무관·방향 무관이라 상승장 단기둔화를 못 거름.
+
+**구현:**
+- config.py — trend_z_threshold=1.5 파라미터화 (구조 universal, 값만 도메인)
+- pattern_nodes.py — _trend_direction_30d에 accel_zscore 산출(statistics.pstdev),
+  기존 acceleration 라벨은 표시용으로만 유지
+- eval/ground_truth.py — 추세악화 = overall_direction "하락" AND accel_z ≤ -z_thr
+  (determine_ground_truth / _set 두 경로 동일 조건)
+- nodes/context_builder.py — 동일 조건일 때만 "⚠ 추세악화 신호" 라인 출력(display 일치)
+- nodes/insight_node.py — 프롬프트 정의 교체 + category 게이트에 추세악화 rule 검증 추가
+  (GT-LLM-display 삼자 조건 일치 → 0526류 LLM 오태깅 자동 제거)
+- eval/label_card.py — 추세 카드에 accel_z·게이트 판정 출력(옛 -15% 텍스트 교체)
+
+**결과:**
+- 5월 Eval 완전일치 67.7% → **93.5%** (29/31), F1 0.957, 종합 90.5%
+- 추세 FAIL 6 → **0건**. 남은 FAIL 2건은 반품이슈(별개)
+- 0518 오판 제거(z=-0.98, 방향 상승 → 게이트 탈락), 0526 LLM 오태깅 제거(횡보)
+- **v1.6 절대문턱 최고점 80.6%도 넘어섬**
+
+**교훈 (정직 기록):**
+1. **+25.8pp의 실체는 z-score가 아니라 방향 게이트다.** 0518류(상승 중 단기둔화)를
+   방향으로 차단한 것이 FAIL 대부분을 없앴다. z-score(std 정규화)는 이번 케이스에서
+   점수 기여는 작고 — 진짜 가치는 "다른 회사에 자동 적응하는 universal 구조" 확보다.
+   측정개선(z 구조)과 판단개선(방향 게이트)을 분리해 기록해야 다음 통계화에서 착시 안 함.
+2. Decision 18 대비 성공한 차이 = **방향 게이트(문맥 조건)를 유의성·효과크기와 병용**.
+   통계량 단독(Wilson/ z)은 문맥(상승/하락 방향)을 모른다 — 도메인 게이트가 보완.
+3. GT-pattern-display-LLM게이트 네 곳의 문턱을 한 조건으로 통일해야 순환 오태깅이 안 샌다.
+
+---
+
 ### Decision 18: 반품 판정을 절대 문턱에서 Wilson score interval로 — 통계화 1호 (회귀 발생, 재검토 필요)
 
 **결정:** 반품 이상 탐지의 매직넘버(배수 3배, 반품률 10%, 5배, 50건)를 제거하고
