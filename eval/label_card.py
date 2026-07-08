@@ -26,6 +26,7 @@ from nodes.anomaly_nodes import anomaly_detect_node
 from nodes.pattern_nodes import pattern_detect_node
 from nodes.insight_node import insight_node
 from eval.ground_truth import determine_ground_truth_set
+from config import DOMAIN_PARAMS
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -106,11 +107,17 @@ def card(date_str: str, offline_raw: pd.DataFrame, online_raw: pd.DataFrame):
 
     # 추세
     tr = patterns.get("trend_direction_30d", {})
-    print(f"\n  [추세] 30일방향={_fmt(tr.get('overall_direction'))}"
+    z_thr = DOMAIN_PARAMS.get("trend_z_threshold", 1.5)
+    accel_z = tr.get("accel_zscore")
+    direction = tr.get("overall_direction")
+    is_trend_bad = (direction == "하락"
+                    and accel_z is not None and accel_z <= -z_thr)
+    print(f"\n  [추세] 30일방향={_fmt(direction)}"
           f"({_fmt(tr.get('overall_change_pct'))}%) / "
-          f"가속={_fmt(tr.get('acceleration'))}"
-          f"({_fmt(tr.get('acceleration_pct'))}%)")
-    print(f"         (문턱: 가속 -15%이하=가속하락=추세악화 / -5~-15%=하락중(추세악화 아님))")
+          f"가속z={_fmt(accel_z)} (표시라벨={_fmt(tr.get('acceleration'))}"
+          f"/{_fmt(tr.get('acceleration_pct'))}%)")
+    print(f"         추세악화 판정={'해당' if is_trend_bad else '아님'}"
+          f" (게이트: 방향 하락 AND 가속z ≤ -{z_thr})")
 
     # 프로모션
     promo = patterns.get("promo_effect", {})

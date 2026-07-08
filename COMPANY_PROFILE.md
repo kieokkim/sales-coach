@@ -57,8 +57,21 @@ DOMAIN_PARAMS(single source of truth), 그 근거는 아래에 기록(백업용)
   근거: 과거 14일 미만이면 평소 기준이 불안정(warm-up). 샘플 3개월 한계로
   4월 초 구간이 해당. 모든 30일-기반 rule의 공통 warm-up 게이트.
 
+### 추세악화 판정 (z-score + 방향 게이트)
+판정 구조는 universal: 가속 z-score(회사 변동성 대비 정규화) + 방향 게이트.
+- accel_zscore = (최근7일 avg − 직전7일 avg) / 30일 일별매출 std(pstdev)
+- 추세악화 = overall_direction "하락" AND accel_zscore ≤ −trend_z_threshold
+
+- trend_z_threshold = 1.5
+  근거: 최근 가속이 회사 일상 변동의 1.5σ 이상 음(陰)으로 꺾이고, 동시에
+  30일 방향도 하락일 때만 추세악화. 상승 추세 중 단기 둔화(0518: 30일 +29%
+  상승 중 단기 가속 −18%)는 방향 게이트에서 자동 제외 — 절대 −15% 문턱이
+  오판하던 케이스를 std 정규화 + 방향 게이트가 해소.
+  다른 회사 적용 시: 변동성 자체는 std가 자동 흡수. threshold만 민감도 조절(1.0~2.0).
+
 통계 표준값(코드 고정, 회사 무관):
 - Wilson 95% 신뢰수준 (z=1.96) — 통계 관행 표준
+- 가속 z-score는 std 정규화(통계 표준). 문턱(trend_z_threshold)만 도메인 값.
 
 ## 이슈 히스토리
 

@@ -3,7 +3,7 @@ import logging
 import os
 import re
 
-from config import LLM_MAX_TOKENS, LLM_MODEL
+from config import LLM_MAX_TOKENS, LLM_MODEL, DOMAIN_PARAMS
 from nodes.context_builder import build_patterns_context
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,9 @@ _SYSTEM_PROMPT = (
     "  (잔여일 < 7이면 60% 미만). [조정 일별 목표] 섹션 수치를 인용하세요.\n"
     "  ※ 월 누적 달성률(예: HCC 46%)은 top_issues가 아닌 risk_items에 넣으세요.\n"
     "     매일 거의 안 바뀌는 구조적 수치이므로 '오늘의 이슈'가 아닙니다.\n"
-    "- 추세악화: 30일 추세 하락 + 최근 7일이 직전 7일보다 15% 이상 가속 하락\n"
+    "- 추세악화: 30일 방향이 '하락'이고, 최근 가속이 회사 변동성 대비 유의하게\n"
+    "  음(陰)으로 꺾일 때. [30일 장기 추세] 섹션에 '추세악화 신호'가 표시된\n"
+    "  날만 해당. 30일 방향이 상승/횡보면 단기 가속하락이어도 추세악화 아님.\n"
     "- 편중: 특정 브랜드/카테고리 비중 지배. 단, 매일 반복되면 이슈 아님.\n\n"
 
     "## 태깅 게이트 (반드시 지킬 것 — 어기면 시스템이 자동 제거함)\n"
@@ -113,8 +115,8 @@ def _validate_category_by_rule(item: dict, patterns: dict) -> bool:
     프롬프트 지시로 반복 실패했으므로 rule-based로 강제 확인.
     부합하면 True(유지), 아니면 False(제거).
 
-    검증 대상: 목표미달, 수익성문제 (수치 기준이 명확한 것)
-    반품이슈/추세악화는 rule 판정과 LLM 판단이 대체로 일치하므로 통과.
+    검증 대상: 목표미달, 수익성문제, 추세악화 (수치 기준이 명확한 것)
+    반품이슈는 rule 판정과 LLM 판단이 대체로 일치하므로 통과.
     """
     category = item.get("category", "")
 
@@ -141,7 +143,22 @@ def _validate_category_by_rule(item: dict, patterns: dict) -> bool:
             )
         return valid
 
-    # 반품이슈/추세악화/편중/기타는 통과
+    if category == "추세악화":
+        trend = patterns.get("trend_direction_30d", {})
+        z_thr = DOMAIN_PARAMS.get("trend_z_threshold", 1.5)
+        accel_z = trend.get("accel_zscore")
+        # ground_truth와 동일 조건: 30일 방향 하락 AND 가속 z 유의.
+        # 상승/횡보 중 단기 가속하락(0518/0526류) 오태깅 제거.
+        valid = (trend.get("overall_direction") == "하락"
+                 and accel_z is not None and accel_z <= -z_thr)
+        if not valid:
+            logger.info(
+                f"category 게이트: 추세악화 제거 "
+                f"(direction={trend.get('overall_direction')}, accel_z={accel_z})"
+            )
+        return valid
+
+    # 반품이슈/편중/기타는 통과
     return True
 
 

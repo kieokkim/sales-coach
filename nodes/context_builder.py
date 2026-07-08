@@ -7,6 +7,8 @@ PERSONA.md 참조 — 타겟 사용자 기준으로 어조/깊이 결정.
 """
 import logging
 
+from config import DOMAIN_PARAMS
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +71,16 @@ def build_patterns_context(state: dict) -> str:
         for ch, info in trend_30d.get("channel_trends", {}).items():
             lines.append(
                 f"  {ch}: {info['direction']} ({info['change_pct']:+.1f}%)"
+            )
+        # 추세악화 게이트 — ground_truth와 동일 조건(방향 하락 AND 가속 z 유의).
+        # 상승/횡보 중 단기 가속하락(0518류)은 여기서 걸러져 표시 안 됨.
+        z_thr = DOMAIN_PARAMS.get("trend_z_threshold", 1.5)
+        accel_z = trend_30d.get("accel_zscore")
+        if (trend_30d.get("overall_direction") == "하락"
+                and accel_z is not None and accel_z <= -z_thr):
+            lines.append(
+                f"  ⚠ 추세악화 신호: 30일 하락 + 최근 가속 z={accel_z:.2f} "
+                f"(회사 변동성 {z_thr}σ 이상 음)"
             )
         lines.append("")
 

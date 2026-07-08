@@ -1,4 +1,5 @@
 import logging
+import statistics
 from calendar import monthrange
 from datetime import datetime, timedelta
 from itertools import combinations
@@ -673,11 +674,20 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
             }
 
         # 최근 7일 vs 직전 7일 비교 (가속도)
+        # acceleration_pct/라벨은 표시용 유지. 판정은 accel_zscore(회사 변동성 정규화)로.
+        accel_zscore = None
         if len(rows) >= 14:
             recent_7 = [r[1] for r in rows[-7:]]
             prev_7 = [r[1] for r in rows[-14:-7]]
             recent_avg = sum(recent_7) / 7
             prev_avg = sum(prev_7) / 7
+
+            # 30일 일별 매출 std 대비 z-score (절대 -15% 문턱 대체)
+            daily_sales = [r[1] for r in rows]
+            daily_std = statistics.pstdev(daily_sales) if len(daily_sales) >= 2 else 0
+            if daily_std > 0:
+                accel_zscore = round((recent_avg - prev_avg) / daily_std, 2)
+
             if prev_avg > 0:
                 acceleration_pct = round((recent_avg - prev_avg) / prev_avg * 100, 1)
                 if acceleration_pct >= 15:
@@ -702,6 +712,7 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
             "overall_change_pct": change_pct,
             "acceleration": acceleration,
             "acceleration_pct": acceleration_pct,
+            "accel_zscore": accel_zscore,
             "channel_trends": channel_trends,
             "days_analyzed": len(rows),
         }

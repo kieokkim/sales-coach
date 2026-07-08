@@ -157,17 +157,19 @@ def determine_ground_truth(state: dict) -> dict:
             "priority": 3,
         })
 
-    # 4. 추세 가속 하락 (4순위)
+    # 4. 추세 악화 (4순위) — 방향 게이트(하락) AND 가속 z-score 유의
     trend_30d = patterns.get("trend_direction_30d", {})
-    acceleration = trend_30d.get("acceleration", "")
-    if acceleration == "가속하락":
+    z_thr = DOMAIN_PARAMS.get("trend_z_threshold", 1.5)
+    direction = trend_30d.get("overall_direction", "")
+    accel_z = trend_30d.get("accel_zscore")
+    # 30일 방향이 하락일 때만 후보. 상승/횡보 중 단기 둔화는 추세악화 아님(0518류 제외).
+    if direction == "하락" and accel_z is not None and accel_z <= -z_thr:
         change = trend_30d.get("overall_change_pct", 0)
-        acc_pct = trend_30d.get("acceleration_pct", 0)
         candidates.append({
             "category": "추세악화",
             "reason": (
-                f"30일 방향 {change:+.1f}%, "
-                f"최근 7일 가속 {acc_pct:+.1f}% — 하락 가속 중"
+                f"30일 방향 하락({change:+.1f}%), "
+                f"최근 가속 z={accel_z:.2f} (회사 변동성 대비 유의 하락)"
             ),
             "severity": "medium",
             "priority": 4,
@@ -276,9 +278,11 @@ def determine_ground_truth_set(state: dict) -> dict:
     if adt.get("severity") in ("high", "medium", "low"):
         detail.append({"category": "목표미달", "severity": adt["severity"]})
 
-    # 추세악화
+    # 추세악화 — 방향 게이트(하락) AND 가속 z-score 유의 (candidate 경로와 동일 조건)
     trend = patterns.get("trend_direction_30d", {})
-    if trend.get("acceleration") == "가속하락":
+    z_thr = DOMAIN_PARAMS.get("trend_z_threshold", 1.5)
+    accel_z = trend.get("accel_zscore")
+    if trend.get("overall_direction") == "하락" and accel_z is not None and accel_z <= -z_thr:
         detail.append({"category": "추세악화", "severity": "medium"})
 
     cat_set = set(d["category"] for d in detail)
