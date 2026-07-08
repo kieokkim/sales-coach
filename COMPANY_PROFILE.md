@@ -52,6 +52,11 @@ DOMAIN_PARAMS(single source of truth), 그 근거는 아래에 기록(백업용)
   5.67%가 평소 2.05%를 넘어 통계로는 진짜 이상이나, 절대 2건은 사소.
   3차례 통계기법으로 못 지웠고 절대건수 하한이 답이었음.
   다른 회사 적용 시: 고가 저빈도는 2~3건, 대량 소비재는 10건+로 조절.
+  적용 경로 2곳(대칭): (1) Wilson 비율 경로(_return_anomalies) — 판매 있는 제품의
+  반품률 이상, (2) return_only 절대 경로(ground_truth) — 판매 0·반품만 있는 제품.
+  둘 다 제품당 반품수량 ≥ return_min_count를 요구한다. return_only는 비율이
+  정의 안 되므로 Wilson 없이 절대건수만 적용. 소량 return_only(0517 1건, 0615 1건)를
+  medium 반품이슈로 과라벨하던 결손을 이 대칭으로 제거.
 
 - min_baseline_days = 14
   근거: 과거 14일 미만이면 평소 기준이 불안정(warm-up). 샘플 3개월 한계로

@@ -97,8 +97,13 @@ def determine_ground_truth(state: dict) -> dict:
 
     kpi_summary = state.get("kpi_summary", {})
     by_product = kpi_summary.get("by_product", [])
+    # 효과크기 게이트: return_only(판매0+반품)도 제품당 반품수량이 return_min_count
+    # 이상이어야 이슈로 본다. Wilson 경로(_return_anomalies)와 대칭 — 소량 반품전용
+    # (0517 1건, 0615 1건)을 medium 반품이슈로 과라벨하던 결손을 막는다.
+    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
     return_only = [p for p in by_product
-                   if p.get("total_sales") == 0 and p.get("zre_qty", 0) > 0]
+                   if p.get("total_sales") == 0
+                   and p.get("zre_qty", 0) >= min_count]
     if return_only:
         total_zre = sum(p["zre_qty"] for p in return_only)
         candidates.append({
@@ -257,8 +262,11 @@ def determine_ground_truth_set(state: dict) -> dict:
                        "severity": _return_severity(return_anomalies)})
     else:
         kpi_summary = state.get("kpi_summary", {})
+        # 효과크기 게이트: 제품당 반품수량 return_min_count 이상만 (Wilson 경로와 대칭)
+        min_count = DOMAIN_PARAMS.get("return_min_count", 5)
         return_only = [p for p in kpi_summary.get("by_product", [])
-                       if p.get("total_sales") == 0 and p.get("zre_qty", 0) > 0]
+                       if p.get("total_sales") == 0
+                       and p.get("zre_qty", 0) >= min_count]
         if return_only:
             total_zre = sum(p["zre_qty"] for p in return_only)
             detail.append({"category": "반품이슈",
