@@ -744,6 +744,22 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
     if raw_daily_required == 0:
         return {}
 
+    # daily_required 상한 캡: 남은목표/잔여일 산식은 월말(잔여일→0)에 쌍곡선 발산해
+    # 달성불가 목표를 매일 미달로 찍는다. 목표균등(월목표/총일수)의 배수로 상한을 건다.
+    # 목표균등 기준이라 데이터 비의존(회사 무관 구조). 배수만 도메인 파라미터.
+    year_month = f"{year:04d}-{month:02d}"
+    monthly_target = MONTHLY_TARGETS.get(year_month, {}).get("_total", 0)
+    total_days_in_month = monthrange(year, month)[1]
+    cap_mult = DOMAIN_PARAMS.get("target_daily_cap_multiplier", 1.5)
+    if monthly_target > 0 and total_days_in_month > 0:
+        daily_cap = cap_mult * (monthly_target / total_days_in_month)
+        if raw_daily_required > daily_cap:
+            logger.info(
+                f"daily_required 캡 적용: {raw_daily_required:,.0f} → {daily_cap:,.0f} "
+                f"({cap_mult}×월목표/{total_days_in_month}일)"
+            )
+            raw_daily_required = daily_cap
+
     adjustments_applied = []
     adjusted = float(raw_daily_required)
 
@@ -779,12 +795,9 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
         )
 
     # 3. 월중 위치 효과 (잔여일 기반 심각도)
-    total_days = monthrange(year, month)[1]
-    days_remaining = total_days - day
-    year_month = f"{year:04d}-{month:02d}"
-    target = MONTHLY_TARGETS.get(year_month, {}).get("_total", 0)
+    days_remaining = total_days_in_month - day
 
-    today_net_sales = kpi_total.get("net_sales", 0)
+    today_net_sales = kpi_total.get("net_sales", 0)   # 반품 차감 (진짜 실적)
     adjusted_daily_required = int(adjusted)
     achievement_vs_adjusted = (
         round(today_net_sales / adjusted_daily_required * 100, 1)
@@ -800,6 +813,12 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
         else:
             severity = "low"
     else:
+        severity = "none"
+
+    # 월말 최후 안전판: 캡 후에도 잔여 소수일은 달성불가 목표라 목표미달 보류.
+    skip_days = DOMAIN_PARAMS.get("target_skip_last_days", 3)
+    if severity != "none" and days_remaining <= skip_days:
+        logger.info(f"월말 {days_remaining}일 ≤ {skip_days}일, 목표미달 판정 보류")
         severity = "none"
 
     return {

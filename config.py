@@ -61,6 +61,10 @@ DOMAIN_PARAMS = {
     "min_baseline_days": 14,  # 과거 기준선 최소 일수 (미만이면 평소값 불안정 → 판정 보류)
     "trend_z_threshold": 1.5, # 가속 z-score 이 값 이상 음(陰)으로 꺾이면 추세악화 후보
                               # (효과크기: 회사 변동성 대비 몇 시그마부터 유의)
+    # 목표미달 판정 — daily_required 산식폭발 억제. 근거는 COMPANY_PROFILE.md.
+    "target_daily_cap_multiplier": 1.5,  # daily_required 상한 = 이 배수 × (월목표/총일수).
+                                         # 남은목표/잔여일이 월말 쌍곡선 발산하는 것 억제.
+    "target_skip_last_days": 3,          # 잔여 이 값 이하 시 목표미달 판정 보류(최후 안전판).
 }
 
 # ─────────────────────────────────────────────
