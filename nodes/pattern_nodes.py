@@ -804,7 +804,11 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
         if adjusted_daily_required > 0 else 0.0
     )
 
-    threshold = 0.8 if days_remaining >= 7 else 0.6
+    threshold = (
+        DOMAIN_PARAMS.get("target_shortfall_ratio_early", 0.8)
+        if days_remaining >= 7
+        else DOMAIN_PARAMS.get("target_shortfall_ratio_late", 0.6)
+    )
     if today_net_sales < adjusted_daily_required * threshold:
         if days_remaining < 7:
             severity = "high"

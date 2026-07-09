@@ -65,6 +65,9 @@ DOMAIN_PARAMS = {
     "target_daily_cap_multiplier": 1.5,  # daily_required 상한 = 이 배수 × (월목표/총일수).
                                          # 남은목표/잔여일이 월말 쌍곡선 발산하는 것 억제.
     "target_skip_last_days": 3,          # 잔여 이 값 이하 시 목표미달 판정 보류(최후 안전판).
+    "target_low_achievement_pct": 70.0,  # 누적 달성률 이 % 미만이면 low_achievement 플래그.
+    "target_shortfall_ratio_early": 0.8, # 잔여 ≥7일: net<조정목표×이 비율이면 미달로 판정.
+    "target_shortfall_ratio_late": 0.6,  # 잔여 <7일: 월말 완화된 미달 문턱.
 }
 
 # ─────────────────────────────────────────────

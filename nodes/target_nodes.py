@@ -2,11 +2,12 @@ import logging
 from calendar import monthrange
 from datetime import datetime
 
-from config import MONTHLY_TARGETS
+from config import MONTHLY_TARGETS, DOMAIN_PARAMS
 
 logger = logging.getLogger(__name__)
 
-LOW_ACHIEVEMENT_THRESHOLD = 70.0
+# 문턱은 config.DOMAIN_PARAMS(single source of truth). 근거는 COMPANY_PROFILE.md.
+LOW_ACHIEVEMENT_THRESHOLD = DOMAIN_PARAMS.get("target_low_achievement_pct", 70.0)
 
 
 def target_compare_node(state: dict) -> dict:
