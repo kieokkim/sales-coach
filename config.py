@@ -1,5 +1,3 @@
-ANOMALY_THRESHOLD_PCT = 30
-
 ONLINE_PLATFORM_MAP = {
     "KCP(한국사이버결제)": "메이크샵",
     "네이버파이낸셜 주식회사": "메이크샵",
