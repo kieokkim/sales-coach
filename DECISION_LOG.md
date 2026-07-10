@@ -2,6 +2,38 @@
 
 ---
 
+### Decision 22: 요일가중치 선재 버그 수정 — Decision 21 정교화 무결 확인
+
+**결정:** Decision 21에서 발견만 하고 미룬 버그(`_adjusted_daily_target`가
+`state["patterns"]`를 실행 시점에 `{}`로 읽음)를 수정. `pattern_detect_node`
+가 `time_pattern`/`promo_effect`를 채운 로컬 `patterns` dict를 아직
+`state`에 반영하기 전에 `_adjusted_daily_target(state, ...)`를 호출해,
+요일가중치·프로모션 보정이 항상 미적용이었음(월말 skip 메시지만 예외 —
+patterns 참조 없이 잔여일만으로 판단해 우연히 정상 동작).
+
+**확증 (수정 전 기준점, 4~6월 91일):** `adjustments_applied`가 비어있지 않은
+날 6건 전부 "월말 임박 — 요일 가중치 생략"뿐, 실제 가중치 적용 0건.
+
+**수정:** `_adjusted_daily_target(state, patterns, report_date_raw)`로
+시그니처 변경, `pattern_detect_node`가 로컬 `patterns`(이미 `time_pattern`/
+`promo_effect` 채워진 상태)를 직접 전달. 호출부 1곳만 존재, 다른 참조 없음.
+
+**검증 (수정 후, 동일 91일):** `adjustments_applied` 비어있지 않은 날
+6→59건으로 증가(요일가중치 정상 적용). severity 변동 5건, 전부 `low↔none`
+경계 이동(0516,0517,0610,0612,0614) — medium/high 변동 없음, 폭발 없음.
+
+**Eval 재측정:** 5월 96.8%(30/31, FAIL 0525 동일 — Decision 21 인정 케이스
+그대로), 6월 100%(30/30) 불변. 4월은 80.0%→86.7%로 수치 달랐으나 FAIL
+카테고리가 전부 `기타` 과다태깅(목표미달과 무관)이고 changed-severity 날짜와
+전혀 안 겹침 — `temperature` 미고정 LLM 호출의 run-to-run 노이즈로 확정
+(같은 코드로 재실행해도 재현 안 되는 종류). 이 수정발 회귀 아님.
+
+**결론:** Decision 21의 캡+skip+0525 정교화는 이 수정으로 흔들리지 않음
+(severity 분포 사실상 불변). 요일가중치가 이제 실제로 목표 판정에 반영됨 —
+"판단개선"이며 eval 점수엔 (0525 제외) 드러나지 않음.
+
+---
+
 ### Decision 21: 목표 정교화 — 산식폭발 캡 + 0525 복합케이스 인정
 
 **캡+skip (구조개선):** daily_required=남은목표/잔여일이 월말 쌍곡선 발산.

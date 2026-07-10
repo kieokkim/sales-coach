@@ -722,7 +722,7 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
         return {}
 
 
-def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
+def _adjusted_daily_target(state: dict, patterns: dict, report_date_raw: str) -> dict:
     """
     요일 가중치 + 프로모션 보정을 반영한 오늘의 조정 일별 목표를 계산한다.
     균등 분할 daily_required 대신 실제 요일 매출 패턴을 반영한 기준을 제공한다.
@@ -735,7 +735,6 @@ def _adjusted_daily_target(state: dict, report_date_raw: str) -> dict:
         return {}
 
     target_summary = state.get("target_summary", {})
-    patterns = state.get("patterns", {})
     kpi_total = state.get("kpi_total", {})
 
     raw_daily_required = 0
@@ -917,7 +916,7 @@ def pattern_detect_node(state: dict) -> dict:
         logger.warning(f"trend_direction_30d 실패: {e}")
 
     try:
-        patterns["adjusted_daily_target"] = _adjusted_daily_target(state, report_date_raw)
+        patterns["adjusted_daily_target"] = _adjusted_daily_target(state, patterns, report_date_raw)
     except Exception as e:
         logger.warning(f"adjusted_daily_target 실패: {e}")
 
