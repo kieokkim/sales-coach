@@ -2,6 +2,32 @@
 
 ---
 
+### Decision 23: 완전성 게이트 도입 — category 게이트의 짝, 재현율 바닥
+
+**배경 (소급 기록 — 최초 설계 시점, 커밋은 Decision 24와 함께 aeeb1e5에 포함됨):**
+
+anchor_set 라벨링 대상을 추리던 중, FAIL 케이스의 정체를 정량 조사했다.
+결과: FAIL의 8~9할이 "누락"(rule GT가 있는데 LLM top_issues가 완전공란)이고,
+"오탐"(rule GT 없는데 LLM이 태깅)은 1~2할뿐이었다.
+
+v1.6에서 만든 category 게이트(_validate_category_by_rule)는 오탐만 방어하는
+구조였다 — LLM이 과하게 말할 때만 rule이 강등. 누락(LLM이 아예 말 안 할 때)엔
+아무 안전장치가 없었다. 이게 비대칭이었다:
+- category 게이트 = 정밀도 천장 (과하게 말하는 것을 막음)
+- 없었던 것 = 재현율 바닥 (말해야 하는데 안 하는 것을 막을 장치)
+
+**설계:** rule GT가 확정한 카테고리를 LLM이 놓치면, rule의 raw 데이터로
+결정론적 문장을 만들어 top_issues에 강제 삽입(_build_fallback_issue +
+_enforce_completeness). LLM 재요청(확률적 방법으로 확률적 문제를 다시 풀려는 것)
+대신 강제 삽입을 택함 — category 게이트와 동일 철학.
+
+**커밋 이력 안내:** 이 설계는 이후 Decision 24(try/except 우회 버그 수정)와
+함께 커밋 aeeb1e5로 병합됨. 별도 커밋 없이 넘어간 것은 작업 진행상
+temperature 검증과 버그 수정이 연속으로 이어지며 생긴 우연이며, 판단으로서는
+독립적이었기에 소급 기록함.
+
+---
+
 ### Decision 24: 완전성 게이트 try/except 우회 버그 + v1.7 최종 확정
 
 **발견 경위:** temperature=0/seed=42 전후 비교 검증 중, run2에서 0611
