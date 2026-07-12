@@ -639,9 +639,9 @@ def _trend_direction_30d(state: dict, report_date_db: str) -> dict:
             channel_rows = conn.execute(
                 """
                 SELECT report_date,
-                       SUM(CASE WHEN platform IN ('HCC','HCC 부산점','HCC 제주점')
+                       SUM(CASE WHEN platform IN ('HCC','HCC Store 1','HCC Store 2')
                            THEN total_revenue ELSE 0 END) as offline_rev,
-                       SUM(CASE WHEN platform NOT IN ('HCC','HCC 부산점','HCC 제주점')
+                       SUM(CASE WHEN platform NOT IN ('HCC','HCC Store 1','HCC Store 2')
                            THEN total_revenue ELSE 0 END) as online_rev
                 FROM daily_kpi
                 WHERE report_date >= date(?, '-30 days')

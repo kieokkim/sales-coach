@@ -93,7 +93,7 @@ def _build_insight_context(state: dict) -> str:
 _MONTHLY_CUMULATIVE_PATTERN = re.compile(
     r"(월\s*(누적|달성률)|누적\s*달성률)"
 )
-_CHANNEL_NAMES = ["HCC", "메이크샵", "네이버", "카카오", "부산점", "제주점"]
+_CHANNEL_NAMES = ["HCC", "메이크샵", "네이버", "카카오", "Store 1", "Store 2"]
 
 
 def _is_monthly_cumulative_issue(top_issue: str) -> bool:

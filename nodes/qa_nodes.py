@@ -19,7 +19,7 @@ def get_schema_context() -> str:
     return """
 [daily_kpi 테이블] — 채널/플랫폼별 일일 KPI (날짜당 여러 행 존재)
 - report_date (TEXT, YYYY-MM-DD)
-- platform (TEXT): HCC, HCC 부산점, HCC 제주점, 메이크샵, 네이버(주)(스토어팜), 주식회사 카카오
+- platform (TEXT): HCC, HCC Store 1, HCC Store 2, 메이크샵, 네이버(주)(스토어팜), 주식회사 카카오
 - net_receipt, total_revenue, total_point, total_fee (REAL/INTEGER)
 
 [daily_product 테이블] — 제품별 일일 판매/반품 (날짜당 제품 수만큼 행 존재)

@@ -39,7 +39,7 @@ target_summary = state.get("target_summary", {})
 anomalies = state.get("anomalies", [])
 db_skipped_count = state.get("db_skipped_count", 0)
 
-OFFLINE_PLATFORMS = {"HCC", "HCC 부산점", "HCC 제주점"}
+OFFLINE_PLATFORMS = {"HCC", "HCC Store 1", "HCC Store 2"}
 
 
 def _prepare_time_series(offline_df, online_df):

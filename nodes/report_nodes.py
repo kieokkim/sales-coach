@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-OFFLINE_PLATFORMS = {"HCC", "HCC 부산점", "HCC 제주점"}
+OFFLINE_PLATFORMS = {"HCC", "HCC Store 1", "HCC Store 2"}
 
 
 def _get_channel(platform: str) -> str:
