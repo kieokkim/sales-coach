@@ -1,49 +1,116 @@
 # SalesCoach
 
-> ERP 데이터 → LangGraph 파이프라인 → 판단 레이어 → 대시보드 리포트 자동 발송
+> 일일 매출 데이터 → LangGraph 판단 파이프라인 → "오늘 무엇을 봐야 하는가"를 정리해서 건네주는 에이전트
 
-일일 매출 ERP 파일을 업로드하면 KPI 분석, 타겟 달성률 계산, 이상치 탐지, 패턴 분석, AI 인사이트/액션 도출, 코멘터리 생성까지 자동으로 처리하고 HTML 이메일 또는 Excel 리포트로 발송합니다.
+매출 숫자 아래 숨은 맥락을 담당자가 매일 혼자 도달하기 어려운 깊이로 자동 분석한다.
+**실행은 자동화하지 않는다. 판단의 정확도로 승부한다.**
 
 ---
 
 ## 왜 만들었나
 
-전 직장에서 판매일보는 매일 수동으로 만들었습니다. ERP에서 데이터를 내려받고, 엑셀 피벗으로 가공하고, 예외를 수작업으로 걸러내고, 양식을 채워 메일로 발송하는 과정이 반복됐습니다. 가장 시간이 많이 걸린 건 가공과 에러 검수였고, 프로모션 여부처럼 ERP에 표기되지 않는 예외는 매번 수기로 처리해야 했습니다.
+전 직장에서 판매일보는 매일 수동이었다. ERP에서 내려받고, 피벗으로 가공하고, 예외를 수기로 걸러내고, 양식을 채워 발송하는 반복. 가장 오래 걸린 건 가공이 아니라 **"이 숫자가 지금 대응해야 할 신호인가"를 판단하는 일**이었고, 그 판단은 문서로 남지 않고 담당자 머릿속에서 매번 재수행됐다.
 
-SalesCoach는 이 반복 작업을 파이프라인으로 자동화하고, 담당자가 아침 5분 안에 "오늘 무엇을 해야 하는가"를 즉시 결정할 수 있도록 설계했습니다.
-
----
-
-## 매출이라는 숫자가 가리는 것
-
-"매출이 늘었다"는 한 문장은 네 가지 다른 의미를 가릴 수 있습니다.
-
-신규 고객이 늘어난 건지, 기존 고객이 더 산 건지(코호트),
-할인 때문에 마진이 줄어든 건지(할인 민감도),
-재고가 더 있었다면 더 팔 수 있었던 건지(재고 시그널),
-다른 매장이나 채널에서 옮겨온 매출인지(카니발리제이션).
-
-SalesCoach는 v1.x에서 이 네 렌즈를 하나씩 추가하고,
-v2.x에서 외부 신호(날씨, 채널 간 이동)까지 통합해
-"숫자가 가리는 것"을 자동으로 드러내는 것을 목표로 합니다.
+SalesCoach의 목적은 그 판단을 자동화하는 게 아니라, **사람이 동시에 들 수 없는 판단 차원들을 대신 들고 있다가 정리된 형태로 건네주는 것**이다. 인지 확장이지 책임 이전이 아니다. 실행은 항상 사람이 한다.
 
 ---
 
-## 주요 기능
+## 이 프로젝트가 실제로 증명하려는 것
 
-- **LangGraph 파이프라인** — 15개 노드로 구성된 데이터 처리 흐름. 어떤 노드가 실패해도 파이프라인은 완주합니다 (graceful degradation)
-- **타겟 달성률 추적** — 월별 전체 및 플랫폼별 타겟 대비 누계 달성률, 잔여 일수 기반 필요 일평균 자동 계산
-- **카테고리/제품별 집계** — 대분류→중분류→소분류 계층 집계, 제품코드별 매출 및 반품률 추적, ZRE 전용(판매 없는 반품) 별도 집계
-- **로컬 SQLite 누적 저장** — 일별 KPI를 로컬 DB에 누적. 월 누계, 연도별 추이 분석 가능. 보안 데이터가 외부로 나가지 않음
-- **중복 방지 가드레일** — 동일 날짜 데이터를 두 번 업로드해도 DB 중복 없음 (`INSERT OR IGNORE`)
-- **rule-based 이상치 탐지** — 매출 0, 음수 순영수증, 봉사료 비율 이상을 LLM 없이 탐지
-- **패턴 탐지** — 7일 평균 대비 오늘 증감률, 반품률 이상 감지, 월말 매출 예측, 프로모션 효과 측정 (rule-based, LLM 없음)
-- **AI 인사이트 판단** — 패턴 데이터를 LLM이 해석해 핵심 이슈/리스크/기회를 JSON 구조화 출력
-- **액션 도출** — 오늘 즉시/이번 주/이번 달 3단계 액션을 담당자 단위로 명시
-- **AI 코멘터리** — 인사이트와 액션을 컨텍스트로 GPT-4o-mini가 임원 보고용 코멘터리 생성. API 키 없어도 파이프라인 완주
-- **인사이트 카드 UI** — 핵심 이슈, 월말 예측, 오늘 할 일 3개 카드를 대시보드 상단에 표시
-- **시계열 차트** — 일별/주별/월별 매출 추이, 채널별/플랫폼별/중분류별/제품별 분석 (Plotly)
-- **출력 옵션** — HTML 이메일 본문 / Excel 파일 첨부 / 둘 다 선택 가능
+정확도 수치 자체보다, **"남은 오류가 왜 코드로 못 푸는 판단인지 설명 가능한 상태"**를 목표로 한다.
+제품 완성도를 4단계로 정의하고, 현재 3단계 중반에 있다.
+
+1. **작동한다** — 파이프라인 완주 ✅
+2. **실패를 안다** — 판정 불가 시 graceful degradation, warm-up 게이트로 판정 보류 ✅
+3. **판단을 증명한다** — eval + 사람이 검증한 ground truth로 순환논리 끊기 ★현재
+4. **낯선 맥락에서 산다** — 다른 회사 ERP에서도 동작 (취업 후)
+
+---
+
+## 설계 철학: 구조는 universal, 파라미터는 도메인
+
+매직넘버를 데이터에 맞춰 튜닝하면 "그 데이터 전용" 에이전트가 된다. SalesCoach는 판정을 3층으로 분리한다:
+
+| 층 | 내용 | 위치 | 특성 |
+|---|---|---|---|
+| **구조** | 통계 함수 (Wilson, z-score) | 코드 | 회사 무관, 불변 |
+| **파라미터** | 도메인 값 (효과크기 임계 등) | `config.DOMAIN_PARAMS` | single source of truth |
+| **상수** | 통계 표준값 (95%, z=1.96) | 코드 상수 | 도메인 무관 |
+
+핵심 원칙 = **유의성(통계) AND 효과크기(도메인 파라미터).**
+통계적으로 유의해도 실무 규모가 사소하면 무시한다. (예: 반품 2건은 통계 유의성이 있어도 절대량이 사소 → 판정 안 함.)
+
+> 이 설계 덕분에 "이 데이터 전용"이 아니라 **"어떤 데이터가 들어와도 작동하는 통계 구조"**가 된다. 매직넘버 튜닝이 아니라 구조 이식이다.
+
+---
+
+## rule / LLM 분리
+
+**판단(탐지·스코어링·이상치)은 전부 결정론적 rule. LLM은 서술·요약·코칭만.**
+
+LLM은 조건문을 "계산"하지 않고 "확률적 생성"한다 — 달성률 164%인데도 목표미달로 태깅하는 식으로 명확한 수치기준을 어긴다. 그래서 LLM이 자연어로 서술하되, **판정의 정당성은 rule 게이트가 최종 검증**한다("서술은 LLM, 판정은 rule").
+
+LLM 노드는 3개(insight / action / commentary)뿐이고, **LLM을 제거해도 핵심 판단 로직은 그대로 동작**한다. 외부 LLM 의존을 내력벽이 아닌 교체 가능한 부품으로 설계했다.
+
+---
+
+## LLM은 확률적이다 — 3중 방어 구조
+
+같은 코드, 같은 데이터로 반복 실행해도 LLM 출력은 흔들린다. 실측(4~6월
+91일×3회): temperature 미지정 시 완전일치율 92.3~93.4%, FAIL은 전부
+오탐(과다 태깅)이었지 누락은 없었다 — LLM이 "말은 하지만 가끔 틀리게"
+태깅하는 문제였다.
+
+여기에 방어를 하나씩 쌓았다:
+
+1. **temperature=0 + seed 고정** — 완전일치율을 95%대로 끌어올렸지만,
+   OpenAI 인프라 수준 비결정성(seed를 고정해도 라우팅·부동소수점 차이로
+   결과가 흔들리는 것)까지는 못 죽인다. 개별 케이스 단위로는 여전히
+   흔들림(실측: run 간 최대 4개 날짜 불일치).
+2. **category 게이트**(`_validate_category_by_rule`) — LLM이 rule 기준에
+   안 맞는데도 태깅하면(과다 태깅) rule이 강제로 걸러낸다. 정밀도 천장.
+3. **완전성 게이트**(`_enforce_completeness`) — rule이 확정한 카테고리를
+   LLM이 놓치면(누락), rule의 원본 수치로 결정론적 문장을 만들어 강제
+   삽입한다. 재현율 바닥. LLM 호출 자체가 통째로 실패(네트워크 오류 등)해도
+   작동하도록 `try/except` 바깥에 배치했다(Decision 24).
+
+세 방어를 다 갖춘 뒤에야 누락이 0/273(3회 반복)으로 완전히 사라졌다.
+프롬프트로 방향을 제시하는 것과, 그 방향을 실제로 지키게 강제하는 것은
+다른 문제다.
+
+---
+
+## 판단을 증명하는 법 — eval + anchor_set
+
+이 프로젝트의 핵심은 대시보드가 아니라 **eval 레이어**다.
+
+- `eval/` — ground truth(집합 반환), insight P/R/F1, action 채점, eval_runner
+- **anchor_set** — 사람이 라벨링한 검증 ground truth. rule이 만든 판정과 대조해 순환논리를 끊는다.
+- **정직한 한계 공개**: 현재 라벨러는 1인(본인)이다. 이 제약을 숨기지 않고 DECISION_LOG에 명시한다. 라벨러와 rule 작성자가 같으면 상관관계가 남으므로, 외부 라벨 확보가 3단계 완주의 남은 관문이다.
+
+**"정답이 둘인 케이스"를 억지로 하나로 잡지 않는다.**
+어떤 날은 판매 소프트 + 반품 복합처럼 ground truth가 진짜로 애매하다. 사람 anchor는 반품만, rule은 반품+목표미달 둘 다 짚는 — 둘 다 사실인 경우. 강제로 단일 라벨을 만드는 대신 이를 인정된 FAIL로 기록한다. 이것이 anchor_set이 필요한 이유의 실증이자 **"자신의 한계를 아는 에이전트"**의 실천이다.
+
+---
+
+## 결과
+
+통계 구조가 이전 버전의 절대 임계값 방식(80.6%)을 성능으로도 넘어섰다.
+
+| 항목 | 값 |
+|---|---|
+| v1.7 최종 (3회 반복 평균, 4~6월 273케이스) | 95.2% |
+| 스프레드 | 94.5~96.7% |
+| 누락(omission) | 0/273 |
+| (이전 절대문턱) v1.6 baseline | 80.6% |
+
+> ⚠️ 비교축 주의: 통계 구조는 "어떤 데이터든" 작동을 전제한 점수라 v1.6
+> 절대문턱과 축이 다르다. "방어 논리(더 낮아도 괜찮다)"가 아니라 "성능
+> 증명(더 정확하다)"으로 전환됐다는 게 요점.
+>
+> 단일 실행이 아닌 3회 반복 평균과 스프레드로 보고한다 — LLM 출력의
+> 잔여 비결정성(위 "LLM은 확률적이다" 섹션 참고) 때문에 단일 수치는
+> 오해를 부를 수 있다.
 
 ---
 
@@ -51,214 +118,49 @@ v2.x에서 외부 신호(날씨, 채널 간 이동)까지 통합해
 
 ```
 SalesDailyState (TypedDict)
-         │
-START → file_load → preprocess → kpi_compute → db_save → db_load_cumulative
-                                                                    │
-                                                           target_compare
-                                                                    │
-                                                           anomaly_detect
-                                                                    │
-                                                           pattern_detect  ← rule-based 패턴 계산
-                                                                    │
-                                                              insight     ← LLM 인사이트 판단
-                                                                    │
-                                                               action     ← LLM 액션 도출
-                                                                    │
-                                                            commentary    ← LLM 서술
-                                                                    │
-                                          ┌─────────────────────────┤
-                                     html_only                     both               excel_only
-                                          │                          │                     │
-                                     build_html              build_html             build_excel
-                                          │                          │                     │
-                                     email_send              build_excel                  END
-                                                                     │
-                                                              email_send
+  │
+  START
+  → file_load → preprocess → kpi_compute → db_save → db_load_cumulative
+  → target_compare → anomaly_detect → pattern_detect → insight → action
+  → commentary(LLM)
+  → build_html / build_excel → email_send → END
 ```
 
-**설계 원칙**: rule-based가 수치를 계산하고, LLM은 판단/도출/서술만 담당합니다. LLM 노드는 `insight_node`, `action_node`, `commentary_node` 3개. 계산은 LLM에 맡기지 않습니다.
+- 판단 레이어: `pattern_detect`(rule) → `insight`(LLM 서술) → `action`(LLM) → rule 게이트 검증
+- 어떤 노드가 실패해도 파이프라인은 완주(graceful degradation), 모든 노드 logger 필수
+- 로컬 SQLite 누적, `INSERT OR IGNORE` 중복 방지, **매출 데이터 외부 미전송**
 
 ---
 
 ## 기술 스택
 
-| 구분 | 사용 기술 |
-|------|-----------|
+| 구분 | 기술 |
+|---|---|
 | 파이프라인 | LangGraph, LangChain |
-| LLM | GPT-4o-mini (langchain-openai) |
-| 데이터 처리 | pandas, openpyxl |
-| 로컬 DB | SQLite |
-| 리포트 | Jinja2 (HTML), openpyxl (Excel) |
-| UI | Streamlit, Plotly |
-| 이메일 | SMTP (Gmail) |
-
-**로드맵 추가 예정**: ChromaDB(RAG) · FastAPI · Langfuse
+| LLM | GPT-4o-mini (설명·요약 전용) |
+| 통계 | Wilson score, z-score |
+| 데이터 | pandas, openpyxl |
+| DB | SQLite (로컬) |
+| eval | 자체 ground truth + anchor_set (P/R/F1) |
+| UI | Streamlit |
 
 ---
 
-## 파일 구조
-
-```
-sales-daily-agent/
-├── graph.py                 # SalesDailyState + LangGraph 그래프 (15노드)
-├── config.py                # 타겟, 플랫폼 매핑, 임계값, 프로모션
-├── db.py                    # SQLite 초기화 + 공통 get_db()
-├── streamlit_app.py
-├── pages/
-│   ├── 1_upload.py          # 파일 업로드 + 날짜 선택 + 옵션 설정
-│   ├── 2_loading.py         # 파이프라인 실행 + 단계별 체크리스트
-│   └── 3_report.py          # 인사이트 카드 + KPI 대시보드 + 시계열 차트
-├── nodes/
-│   ├── load_nodes.py
-│   ├── preprocess_nodes.py  # ERP 데이터 정제 + 날짜 필터
-│   ├── kpi_nodes.py         # 매출/영수증/포인트 + 카테고리/제품별 집계
-│   ├── db_nodes.py          # SQLite 저장 + 월 누계 + 30일 제품 누적 조회
-│   ├── target_nodes.py      # 타겟 달성률 계산
-│   ├── anomaly_nodes.py     # rule-based 이상치 탐지
-│   ├── pattern_nodes.py     # 7일 평균/반품률/월말예측/프로모션 효과
-│   ├── insight_node.py      # LLM 인사이트 판단 (JSON 구조화)
-│   ├── action_node.py       # LLM 액션 도출 (3단계)
-│   ├── commentary_nodes.py  # LLM 서술형 코멘터리
-│   ├── report_nodes.py      # HTML + Excel 리포트 빌드
-│   └── email_nodes.py       # SMTP 발송
-├── scripts/
-│   └── seed_db.py           # 샘플 데이터 DB 사전 적재 (최초 1회)
-├── templates/
-│   └── report.html          # 이메일용 HTML 템플릿
-├── utils/
-│   └── styles.py            # Streamlit CSS 커스터마이징
-└── data/
-    ├── sample_offline_3months.xlsx  # 오프라인 샘플 91일치
-    ├── sample_online_3months.xlsx   # 온라인 샘플 91일치
-    └── product_master.xlsx          # 제품 마스터 (69개)
-```
-
----
-
-## 실행 방법
+## 실행
 
 ```bash
-# 1. 레포 클론
-git clone https://github.com/kieokkim/sales-coach.git
-cd sales-coach
-
-# 2. 가상환경 생성 및 의존성 설치
 uv venv && source .venv/bin/activate
 uv pip install -r requirements.txt
+cp .env.example .env    # OPENAI_API_KEY 등 (없어도 파이프라인은 완주)
 
-# 3. 환경변수 설정
-cp .env.example .env
-# .env 파일에 OPENAI_API_KEY, EMAIL_SENDER, EMAIL_PASSWORD 입력
-
-# 4. 샘플 DB 사전 적재 (최초 1회 — 7일/30일 비교 데이터 생성)
-uv run python scripts/seed_db.py
-
-# 5. 실행
-uv run streamlit run streamlit_app.py
+uv run streamlit run streamlit_app.py          # 앱
+uv run python eval/eval_runner.py --start ... --end ...   # eval
 ```
 
-OPENAI_API_KEY와 이메일 설정 없이도 파이프라인은 정상 실행됩니다. LLM 코멘터리와 이메일 발송만 생략됩니다.
-
----
-
-## 샘플 데이터로 테스트
-
-`data/` 디렉토리에 샘플 데이터가 포함되어 있습니다.
-
-- `sample_offline_3months.xlsx` — 오프라인 3개 매장(HCC서울/부산/제주) 91일치 (12,803행)
-- `sample_online_3months.xlsx` — 온라인 3개 플랫폼(메이크샵/네이버/카카오) 91일치 (23,159행)
-- `product_master.xlsx` — 헬리녹스 제품 마스터 69개 (대분류/중분류/소분류/제품코드/단가)
-
-샘플 데이터 기간: 2025-04-01 ~ 2025-06-30
-
-**포함된 시나리오:**
-- 어버이날 프로모션 효과 (5/1~5/10)
-- V.TARP 재입고 이벤트 (5/12~5/24) + 품질 이슈로 60% 반품 (5/25)
-- 계절 가중치 (6월 여름 시즌 진입)
-
-**테스트 추천 날짜:** 2025-05-25  
-→ V.TARP 반품 급증(457건), 7일 평균 대비 +192% 매출, 다채널 이상치 동시 발생
-
-**실행 순서:**
-1. `uv run python scripts/seed_db.py` (최초 1회)
-2. streamlit 실행 후 날짜 2025-05-25 선택
-3. 샘플 파일 2개 업로드 후 리포트 생성
-
----
-
-## 타겟 설정
-
-`config.py`의 `MONTHLY_TARGETS`에서 월별 전체 및 플랫폼별 타겟을 설정합니다.
-
-```python
-MONTHLY_TARGETS = {
-    "2025-05": {
-        "_total":         5_000_000_000,  # 전체 월 타겟
-        "HCC":            2_000_000_000,
-        "HCC 부산점":     1_000_000_000,
-        "HCC 제주점":       800_000_000,
-        "메이크샵":       1_200_000_000,
-    },
-}
-```
-
-UI의 타겟 설정 expander에서 즉석으로 입력할 수도 있습니다.
-
----
-
-## 환경변수
-
-| 변수 | 설명 | 필수 |
-|------|------|------|
-| `OPENAI_API_KEY` | LLM 코멘터리/인사이트/액션 생성 | 선택 |
-| `EMAIL_SENDER` | 발신 Gmail 주소 | 선택 |
-| `EMAIL_PASSWORD` | Gmail 앱 비밀번호 | 선택 |
-| `EMAIL_RECIPIENTS` | 수신자 (쉼표 구분) | 선택 |
-| `SMTP_HOST` | 기본: smtp.gmail.com | 선택 |
-| `SMTP_PORT` | 기본: 587 | 선택 |
-
----
-
-## 확장 계획
-
-### 완료
-
-| 버전 | 내용 |
-|------|------|
-| v1.0 | ERP → 파이프라인 → KPI 대시보드 → 이메일/Excel 발송 |
-| v1.1 | 로컬 SQLite 누적, 중복 방지 가드레일, rule-based 이상치 탐지 |
-| v1.2 | 카테고리/제품 집계, 패턴 탐지, LLM 인사이트/액션 판단 레이어, 시계열 차트 |
-
-### 🔜 로드맵 — "판단 정확도" 우선
-
-SalesCoach의 다음 단계는 **기능을 늘리는 것보다 판단의 깊이를 늘리는 것**을
-우선합니다. 새 분석 영역을 고를 때 "이게 LLM의 판단을 더 정확하게/깊게
-만드는가"를 먼저 묻고, 단순히 보여줄 정보만 늘리는 항목은 뒤로 미룹니다.
-(타겟 사용자와 코칭 목적은 [PERSONA.md](./PERSONA.md) 참고)
-
-| 우선순위 | 버전 | 내용 | 판단 정확도에 기여하는 지점 |
-|---------|------|------|------------------------------|
-| 1 | (구조 정리) | patterns 공통화 | insight/commentary가 같은 context 빌더 공유 — 반복된 누락 버그의 구조적 원인 제거 |
-| 2 | v1.6 | Eval 레이어 | insight_node의 판단(top_issue)이 사람 라벨과 일치하는지 정량 검증. 이후 모든 기능의 효과를 측정 가능하게 함 |
-| 3 | v2.1 | 카니발리제이션 탐지 | "매출 증가가 신규 수요인가, 채널 간 이동인가" — rule만으로 풀 수 없는 가장 어려운 판단 영역 |
-| 4 | v2.0 | RAG (과거 인사이트 검색) | "이런 패턴이 전에도 있었나" 회상 → 판단에 과거 근거를 더함 |
-
-### ⏸ 보류
-
-판단 품질과 직결되지 않아 후순위로 미룹니다.
-
-| 버전 | 내용 | 보류 이유 |
-|------|------|-----------|
-| v1.7 | 재고 시그널 | 단순 rule 기반 소진 예측, LLM 개입 여지 적음 |
-| v2.0 | FastAPI 분리 / Langfuse | 인프라 전환, 판단 품질 자체에는 영향 없음 |
-| v2.1 | 날씨 연동 | 외부 신호 추가는 의미 있으나 우선순위 낮음 |
-
-**설계 원칙**: LLM은 판단(insight)·도출(action)·서술(commentary) 3개 노드만
-담당합니다. 수치 계산과 비교 기준값은 전부 rule-based로 처리하므로,
-기능이 늘어나도 "AI가 틀려도 숫자는 틀리지 않는" 구조는 유지됩니다.
+샘플 데이터는 합성이며 실거래를 포함하지 않는다.
 
 ---
 
 ## 관련 프로젝트
 
-- [TradeCoach](https://github.com/kieokkim/trade-coach-v3) — LangGraph 기반 트레이딩 복기 코치. ICT 패턴 탐지 + 행동 교정 에이전트
+- [TradeCoach](https://github.com/kieokkim/trade-coach-v3) — 같은 설계 철학·Workflow 골격을 **코드 공유 없이** 다른 도메인(트레이딩, 룰 기반 판단)에 이식. "Reuse Architecture, not Implementation"의 breadth 검증.
