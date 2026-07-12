@@ -5,6 +5,7 @@ import re
 
 from config import LLM_MAX_TOKENS, LLM_MODEL, DOMAIN_PARAMS
 from nodes.context_builder import build_patterns_context
+from eval.ground_truth import determine_ground_truth_set
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,89 @@ def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
     return insights
 
 
+def _build_fallback_issue(category: str, patterns: dict, kpi_summary: dict) -> dict:
+    """
+    LLM이 누락한 GT 카테고리에 대해, rule의 raw 데이터로
+    결정론적 자연어 문장을 생성한다. LLM 호출 없음 — 판단은 이미 rule이 끝냄.
+    """
+    if category == "반품이슈":
+        ra = patterns.get("return_anomalies", [])
+        if ra:
+            top = ra[0]
+            issue = (
+                f"{top.get('product_name', '')}의 반품이 오늘 {top.get('today_returns', 0)}건 "
+                f"발생해 평균 대비 {top.get('multiplier', 0)}배 수준입니다."
+            )
+            return {"issue": issue, "category": category}
+
+        min_count = DOMAIN_PARAMS.get("return_min_count", 5)
+        return_only = [
+            p for p in kpi_summary.get("by_product", [])
+            if p.get("total_sales", 0) == 0 and p.get("zre_qty", 0) >= min_count
+        ]
+        if return_only:
+            total_zre = sum(p["zre_qty"] for p in return_only)
+            issue = (
+                f"판매 없이 반품만 {len(return_only)}개 제품에서 "
+                f"총 {total_zre}건 발생했습니다."
+            )
+            return {"issue": issue, "category": category}
+        return {"issue": "오늘 반품이슈가 감지되었습니다.", "category": category}
+
+    if category == "목표미달":
+        adt = patterns.get("adjusted_daily_target", {})
+        adjustments = ", ".join(adt.get("adjustments_applied", []))
+        issue = (
+            f"오늘 순매출 {adt.get('today_net_sales', 0):,}원 — "
+            f"조정 일별 목표({adjustments}) {adt.get('adjusted_daily_required', 0):,}원의 "
+            f"{adt.get('achievement_vs_adjusted', 0)}%에 그쳤습니다 "
+            f"(잔여 {adt.get('days_remaining', 0)}일)."
+        )
+        return {"issue": issue, "category": category}
+
+    if category == "추세악화":
+        trend = patterns.get("trend_direction_30d", {})
+        issue = (
+            f"최근 매출 추세가 지난 30일 하락 흐름"
+            f"(z={trend.get('accel_zscore')}) 속에서 통계적으로 유의하게 꺾이고 있습니다."
+        )
+        return {"issue": issue, "category": category}
+
+    if category == "수익성문제":
+        disc = patterns.get("discount_sensitivity", {})
+        dev = disc.get("margin_deviation", 0) or 0
+        issue = (
+            f"오늘 실제 마진율({disc.get('margin_pct_overall')}%)이 믹스 기대치보다 "
+            f"{abs(dev)}%p 낮습니다."
+        )
+        return {"issue": issue, "category": category}
+
+    return {"issue": f"오늘 {category} 관련 이슈가 감지되었습니다.", "category": category}
+
+
+def _enforce_completeness(insights: dict, state: dict) -> dict:
+    """
+    rule GT가 확정한 카테고리가 LLM top_issues에 없으면 강제 삽입.
+    category 게이트(오탐 방어)의 짝 = 누락 방어.
+    """
+    gt = determine_ground_truth_set(state)
+    current_categories = {
+        item.get("category") for item in insights.get("top_issues", [])
+        if isinstance(item, dict)
+    }
+
+    missing = gt["categories"] - current_categories
+    for cat in missing:
+        fallback = _build_fallback_issue(
+            cat, state.get("patterns", {}), state.get("kpi_summary", {})
+        )
+        insights["top_issues"].append(fallback)
+        logger.info(f"완전성 게이트: '{cat}' 누락 감지 → 강제 삽입")
+
+    insights["top_issues"] = insights["top_issues"][:2]  # 상한 2 유지
+    return insights
+
+
 def insight_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
     insights: dict = {}
@@ -245,7 +329,9 @@ def insight_node(state: dict) -> dict:
         llm = ChatOpenAI(
             model=LLM_MODEL,
             max_tokens=LLM_MAX_TOKENS,
-            api_key=api_key
+            api_key=api_key,
+            temperature=0,
+            model_kwargs={"seed": 42},
         )
         response = llm.invoke([
             SystemMessage(content=system_prompt),
@@ -258,10 +344,16 @@ def insight_node(state: dict) -> dict:
         raw = re.sub(r',\s*([}\]])', r'\1', raw)
         insights = json.loads(raw)
         insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
-        issue_count = len(insights.get("top_issues", []))
-        logger.info(f"insight_node 완료: top_issues {issue_count}개")
     except Exception as e:
         logger.warning(f"insight_node 실패: {e}")
         errors.append(f"insight_node 실패: {e}")
+
+    # LLM 호출/파싱이 통째로 실패해도(네트워크 오류 등) 완전성 게이트는
+    # rule 데이터만으로 동작하므로 반드시 거쳐야 한다 — try 블록 밖에서 무조건 실행.
+    if not isinstance(insights.get("top_issues"), list):
+        insights["top_issues"] = []
+    insights = _enforce_completeness(insights, state)
+    issue_count = len(insights.get("top_issues", []))
+    logger.info(f"insight_node 완료: top_issues {issue_count}개")
 
     return {**state, "insights": insights, "errors": errors}
