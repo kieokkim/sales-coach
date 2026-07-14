@@ -30,3 +30,9 @@
 - nodes/insight_node.py — _validate_category_by_rule (게이트)
 - DECISION_LOG.md Decision 14~17
 - COMPANY_PROFILE.md — 마진 28% 베이스라인
+
+---
+
+## 참고 — 향후 재검토 시 (지금 착수 안 함)
+- 프로모션 대상 제품(scope) 필드 부재 (Decision 26). 실사용 연동 논의
+  시 실제 프로모션 관리 방식 확인 후 스키마 설계 판단.

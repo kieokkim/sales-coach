@@ -11,5 +11,13 @@
     "severity": "none",
     "note": "어버이날 프로모션 시작일. 매출 급등은 프로모션 효과로 설명됨. 이슈 아님.",
     "labeled_by": "human"
+  },
+  "2025-05-01_chair_zero_black": {
+    "product": "Chair Zero Black",
+    "signal": "반품 3건, 738,150원, 평소 대비 10.5배 (Wilson 유의, qty·금액 게이트 통과)",
+    "top_issue_category": "판단보류",
+    "severity": "unknown",
+    "note": "어버이날 프로모션(5/1~5/10) 기간 중 반품 급증. 이 제품이 프로모션 대상이었는지가 인과 판단의 핵심이나, 현재 샘플 데이터에 프로모션 대상 제품(scope) 필드가 없어 확인 불가. 위의 '2025-05-01: 정상' 라벨은 매출 급등 전반에 대한 판단이었지 이 반품 건을 다룬 적 없음(note 원문 재확인 결과) — 별개 신호로 판단보류 처리.",
+    "labeled_by": "human"
   }
 }
