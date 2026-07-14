@@ -76,7 +76,7 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
     zor = df[df["오더유형"] == "ZOR"].copy()
     zre = df[df["오더유형"] == "ZRE"].copy()
 
-    # ZRE 반품 수량 미리 집계 (행 개수가 아닌 수량 합 — 단위 일치)
+    # ZRE 반품 수량/금액 미리 집계 (행 개수가 아닌 합 — 단위 일치)
     if not zre.empty and "수량" in zre.columns:
         zre_count = zre.groupby("제품코드")["수량"].sum().astype(int).to_dict()
     elif not zre.empty:
@@ -84,6 +84,11 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
         zre_count = zre.groupby("제품코드").size().to_dict()
     else:
         zre_count = {}
+
+    if not zre.empty and "매출" in zre.columns:
+        zre_amt = zre.groupby("제품코드")["매출"].sum().astype(int).to_dict()
+    else:
+        zre_amt = {}
 
     group_cols = ["제품코드", "제품명"]
     if "소분류내역" in df.columns:
@@ -104,6 +109,7 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
                 "qty": int(grp["수량"].sum()) if "수량" in grp.columns else len(grp),
                 "total_sales": int(grp["매출"].sum()),
                 "zre_qty": zre_count.get(product_code, 0),
+                "zre_amt": zre_amt.get(product_code, 0),
             })
 
     # ZRE만 있는 제품 추가 (오늘 반품만 발생한 케이스)
@@ -121,6 +127,7 @@ def _compute_by_product(df: pd.DataFrame, top_n: int = 20) -> list[dict]:
                     "qty": 0,
                     "total_sales": 0,
                     "zre_qty": int(grp["수량"].sum()) if "수량" in grp.columns else int(len(grp)),
+                    "zre_amt": int(grp["매출"].sum()) if "매출" in grp.columns else 0,
                 })
 
     # ZOR 제품: total_sales 내림차순 top_n개

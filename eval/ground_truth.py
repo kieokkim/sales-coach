@@ -12,7 +12,7 @@ import json
 import logging
 import os
 
-from config import DOMAIN_PARAMS
+from config import DOMAIN_PARAMS, classify_return_severity
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +33,15 @@ def _load_anchor_set() -> dict:
 
 def _return_severity(return_anomalies: list) -> str:
     """
-    반품이슈 severity를 반품 절대수량 규모로 판정한다.
-    anomaly는 이미 Wilson유의+절대건수(min_count) 게이트를 통과했으므로 최소 medium.
-    high: 오늘 반품 절대수량이 min_count의 5배 이상 (대량 반품 = 즉각 대응)
-    medium: 그 외 (유의하나 규모가 그보다 작음)
+    반품이슈 severity = anomaly 목록 중 최고 severity.
+    severity 자체는 pattern_nodes.py의 _return_anomalies가 반품 금액 구간
+    (return_amount_medium/high)으로 이미 판정해 각 anomaly에 담아둔 값이다.
+    여기서 재계산하지 않고 그대로 읽는다 — single source of truth.
     """
-    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
-    for a in return_anomalies:
-        if a.get("today_returns", 0) >= min_count * 5:
-            return "high"
-    return "medium"
+    severity_rank = {"high": 0, "medium": 1}
+    ranked = [a.get("severity", "medium") for a in return_anomalies]
+    ranked.sort(key=lambda s: severity_rank.get(s, 1))
+    return ranked[0] if ranked else "medium"
 
 
 def determine_ground_truth(state: dict) -> dict:
@@ -97,22 +96,22 @@ def determine_ground_truth(state: dict) -> dict:
 
     kpi_summary = state.get("kpi_summary", {})
     by_product = kpi_summary.get("by_product", [])
-    # 효과크기 게이트: return_only(판매0+반품)도 제품당 반품수량이 return_min_count
-    # 이상이어야 이슈로 본다. Wilson 경로(_return_anomalies)와 대칭 — 소량 반품전용
-    # (0517 1건, 0615 1건)을 medium 반품이슈로 과라벨하던 결손을 막는다.
-    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
+    # 효과크기 게이트: return_only(판매0+반품)도 수량 하한 AND 반품 금액 구간을
+    # 충족해야 이슈로 본다. Wilson 경로(_return_anomalies)와 대칭 — 단발성·소액
+    # 반품전용을 medium 반품이슈로 과라벨하던 결손을 막는다.
     return_only = [p for p in by_product
                    if p.get("total_sales") == 0
-                   and p.get("zre_qty", 0) >= min_count]
+                   and classify_return_severity(p.get("zre_qty", 0), p.get("zre_amt", 0)) is not None]
     if return_only:
         total_zre = sum(p["zre_qty"] for p in return_only)
+        total_amt = sum(p.get("zre_amt", 0) for p in return_only)
         candidates.append({
             "category": "반품이슈",
             "reason": (
                 f"판매 없이 반품만 {len(return_only)}개 제품 "
-                f"총 {total_zre}건 발생"
+                f"총 {total_zre}건({total_amt:,}원) 발생"
             ),
-            "severity": "high" if total_zre >= 50 else "medium",
+            "severity": classify_return_severity(total_zre, total_amt) or "medium",
             "priority": 1,
         })
 
@@ -262,15 +261,15 @@ def determine_ground_truth_set(state: dict) -> dict:
                        "severity": _return_severity(return_anomalies)})
     else:
         kpi_summary = state.get("kpi_summary", {})
-        # 효과크기 게이트: 제품당 반품수량 return_min_count 이상만 (Wilson 경로와 대칭)
-        min_count = DOMAIN_PARAMS.get("return_min_count", 5)
+        # 효과크기 게이트: 수량 하한 AND 반품 금액 구간 (Wilson 경로와 대칭)
         return_only = [p for p in kpi_summary.get("by_product", [])
                        if p.get("total_sales") == 0
-                       and p.get("zre_qty", 0) >= min_count]
+                       and classify_return_severity(p.get("zre_qty", 0), p.get("zre_amt", 0)) is not None]
         if return_only:
-            total_zre = sum(p["zre_qty"] for p in return_only)
+            total_zre = sum(p.get("zre_qty", 0) for p in return_only)
+            total_amt = sum(p.get("zre_amt", 0) for p in return_only)
             detail.append({"category": "반품이슈",
-                           "severity": "high" if total_zre >= 50 else "medium"})
+                           "severity": classify_return_severity(total_zre, total_amt) or "medium"})
 
     # 수익성문제 (믹스 상대편차)
     discount = patterns.get("discount_sensitivity", {})

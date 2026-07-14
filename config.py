@@ -53,9 +53,19 @@ LLM_MAX_TOKENS = 1500
 # config가 single source of truth. 각 값의 근거는 COMPANY_PROFILE.md에 서술.
 # ─────────────────────────────────────────────
 DOMAIN_PARAMS = {
-    # 반품 이상 판정 = 유의성(Wilson) AND 효과크기(절대건수 하한).
-    # 아래 두 값이 효과크기·warm-up 게이트. 근거는 COMPANY_PROFILE.md.
-    "return_min_count": 5,    # 오늘 반품 절대수량 하한 (이 미만은 통계 유의해도 노이즈)
+    # 반품 이상 판정 = 유의성(Wilson) AND 효과크기(수량 하한 AND 금액 구간).
+    # 건수 기준(예: 3건)은 제품 단가를 무시해 저가품 다건과 고가품 소량을
+    # 동일 취급하는 문제가 있었다 — 금액 기준으로 전환.
+    # 단일 문턱(예: 200만원)은 199만원 vs 200만원 같은 칼날 경계 문제가
+    # 있어, 목표(target) severity와 동일하게 구간화(medium/high)했다.
+    # 금액만으로는 극단적으로 낮은 baseline(평소 반품 0에 가까운 희귀
+    # 고가품)에서 qty=1도 Wilson 유의성을 통과해 91일 중 27일 과다트리거가
+    # 발생 — qty≥2 하한을 AND로 병행해 단발성 노이즈를 차단한다.
+    # 91일 실측 반품금액 분포(90pct≈69만, 99pct≈252만) 기준 캘리브레이션.
+    # 근거는 COMPANY_PROFILE.md.
+    "return_min_qty": 2,               # 오늘 반품 수량 이 미만(=1)이면 금액 무관 배제
+    "return_amount_medium": 700_000,   # qty≥return_min_qty AND 이 금액 이상이면 medium
+    "return_amount_high": 2_000_000,   # qty≥return_min_qty AND 이 금액 이상이면 high
     "min_baseline_days": 14,  # 과거 기준선 최소 일수 (미만이면 평소값 불안정 → 판정 보류)
     "trend_z_threshold": 1.5, # 가속 z-score 이 값 이상 음(陰)으로 꺾이면 추세악화 후보
                               # (효과크기: 회사 변동성 대비 몇 시그마부터 유의)
@@ -67,6 +77,21 @@ DOMAIN_PARAMS = {
     "target_shortfall_ratio_early": 0.8, # 잔여 ≥7일: net<조정목표×이 비율이면 미달로 판정.
     "target_shortfall_ratio_late": 0.6,  # 잔여 <7일: 월말 완화된 미달 문턱.
 }
+
+
+def classify_return_severity(qty: int, amount: float) -> str | None:
+    """
+    반품 수량+금액을 severity 구간으로 분류. 효과크기 미달이면 None.
+    qty < return_min_qty(=1건)면 금액과 무관하게 배제 — 단발성 노이즈 차단.
+    """
+    if qty < DOMAIN_PARAMS.get("return_min_qty", 2):
+        return None
+    if amount >= DOMAIN_PARAMS.get("return_amount_high", 2_000_000):
+        return "high"
+    if amount >= DOMAIN_PARAMS.get("return_amount_medium", 700_000):
+        return "medium"
+    return None
+
 
 # ─────────────────────────────────────────────
 # 통계 표준 상수 — 도메인 무관 (회사 바뀌어도 불변)

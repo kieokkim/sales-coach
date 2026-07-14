@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from itertools import combinations
 import pandas as pd
 
-from config import MONTHLY_TARGETS, PROMOTIONS, DOMAIN_PARAMS, STAT_Z_95
+from config import MONTHLY_TARGETS, PROMOTIONS, DOMAIN_PARAMS, STAT_Z_95, classify_return_severity
 from db import get_db
 
 logger = logging.getLogger(__name__)
@@ -116,20 +116,20 @@ def _wilson_lower_bound(successes: int, n: int, z: float = STAT_Z_95) -> float:
 
 def _return_anomalies(state: dict, report_date_db: str) -> list:
     """
-    제품별 반품 이상 탐지 = 유의성(Wilson) AND 효과크기(절대건수 하한).
+    제품별 반품 이상 탐지 = 유의성(Wilson) AND 효과크기(반품 금액 구간).
 
     - 유의성: 오늘 반품률 Wilson 신뢰구간 하한이 평소(30일) 점추정을 넘는가.
       소표본이면 하한이 넓게 퍼져 자동 보류되어 극단 비율 오탐을 막는다.
-    - 효과크기: 오늘 반품 절대수량이 return_min_count 이상인가.
-      통계적으로 유의해도(20% vs 2%) 절대량이 사소하면(2건) 운영상 노이즈다.
-      Wilson 단독으로는 못 거르는 소량 반품 오탐(0501 케이스)을 이 게이트가 지운다.
+    - 효과크기: 오늘 반품 금액이 return_amount_medium/high 구간에 드는가.
+      건수 기준은 제품 단가를 무시해 저가품 다건과 고가품 소량을 동일
+      취급하는 문제가 있었다 — 금액 기준 + 구간화(medium/high)로 전환.
+      Wilson 단독으로는 못 거르는 소액 반품 오탐(0501 케이스)을 이 게이트가 지운다.
     - warm-up: 과거 기준선이 min_baseline_days 미만이면 평소값이 불안정 → 판정 보류.
     """
     by_product = state.get("kpi_summary", {}).get("by_product", [])
     if not by_product:
         return []
 
-    min_count = DOMAIN_PARAMS.get("return_min_count", 5)
     min_days = DOMAIN_PARAMS.get("min_baseline_days", 14)
 
     try:
@@ -157,6 +157,7 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
     for prod in by_product:
         code = prod["product_code"]
         today_returns = prod["zre_qty"]
+        today_amt = prod.get("zre_amt", 0)
         today_total = prod["qty"] + prod["zre_qty"]
         hist_returns, hist_total, hist_days = hist_map.get(code, (0, 0, 0))
 
@@ -171,8 +172,9 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
             )
             continue
 
-        # 효과크기 게이트: 오늘 반품 절대수량 하한 (소량 반품 오탐 제거) ← 핵심
-        if today_returns < min_count:
+        # 효과크기 게이트: 수량 하한 AND 금액 구간 (단발성·소액 반품 오탐 제거) ← 핵심
+        severity = classify_return_severity(today_returns, today_amt)
+        if severity is None:
             continue
 
         hist_rate = hist_returns / hist_total  # 평소 점추정 (기준선)
@@ -189,9 +191,11 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
                 "today_lower_bound": round(today_lower, 4),
                 "hist_rate": round(hist_rate, 4),
                 "today_returns": today_returns,
+                "today_return_amount": today_amt,
                 "today_sample": today_total,
                 "multiplier": multiplier,  # 참고용 (판정엔 안 씀)
-                "significance": "Wilson유의+절대건수충족",
+                "severity": severity,
+                "significance": "Wilson유의+수량·금액기준충족",
                 "flag": True,
             })
     return anomalies

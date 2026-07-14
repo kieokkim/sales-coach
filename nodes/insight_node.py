@@ -3,7 +3,7 @@ import logging
 import os
 import re
 
-from config import LLM_MAX_TOKENS, LLM_MODEL, DOMAIN_PARAMS
+from config import LLM_MAX_TOKENS, LLM_MODEL, DOMAIN_PARAMS, classify_return_severity
 from nodes.context_builder import build_patterns_context
 from eval.ground_truth import determine_ground_truth_set
 
@@ -206,6 +206,13 @@ def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
     return insights
 
 
+def _severity_phrase(severity: str) -> str:
+    """severity를 자연어 톤으로 변환. medium=주의, high=경고."""
+    if severity == "high":
+        return "심각하여 대응이 필요합니다."
+    return "주의 깊게 지켜볼 필요가 있습니다."
+
+
 def _build_fallback_issue(category: str, patterns: dict, kpi_summary: dict) -> dict:
     """
     LLM이 누락한 GT 카테고리에 대해, rule의 raw 데이터로
@@ -217,20 +224,24 @@ def _build_fallback_issue(category: str, patterns: dict, kpi_summary: dict) -> d
             top = ra[0]
             issue = (
                 f"{top.get('product_name', '')}의 반품이 오늘 {top.get('today_returns', 0)}건 "
-                f"발생해 평균 대비 {top.get('multiplier', 0)}배 수준입니다."
+                f"발생해 평균 대비 {top.get('multiplier', 0)}배 수준입니다. "
+                f"{_severity_phrase(top.get('severity', 'medium'))}"
             )
             return {"issue": issue, "category": category}
 
-        min_count = DOMAIN_PARAMS.get("return_min_count", 5)
         return_only = [
             p for p in kpi_summary.get("by_product", [])
-            if p.get("total_sales", 0) == 0 and p.get("zre_qty", 0) >= min_count
+            if p.get("total_sales", 0) == 0
+            and classify_return_severity(p.get("zre_qty", 0), p.get("zre_amt", 0)) is not None
         ]
         if return_only:
             total_zre = sum(p["zre_qty"] for p in return_only)
+            total_amt = sum(p.get("zre_amt", 0) for p in return_only)
+            severity = classify_return_severity(total_zre, total_amt) or "medium"
             issue = (
                 f"판매 없이 반품만 {len(return_only)}개 제품에서 "
-                f"총 {total_zre}건 발생했습니다."
+                f"총 {total_zre}건({total_amt:,}원) 발생했습니다. "
+                f"{_severity_phrase(severity)}"
             )
             return {"issue": issue, "category": category}
         return {"issue": "오늘 반품이슈가 감지되었습니다.", "category": category}
