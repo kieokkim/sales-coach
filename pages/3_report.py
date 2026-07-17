@@ -89,6 +89,14 @@ if errors:
         for e in errors:
             st.warning(e)
 
+if state.get("no_data_for_date"):
+    st.error(
+        f"선택한 날짜({report_date_display})에 해당하는 데이터가 업로드 파일에서 "
+        "발견되지 않았습니다. 날짜를 다시 확인해주세요."
+    )
+    st.page_link("pages/1_upload.py", label="← 업로드 페이지로 이동")
+    st.stop()
+
 
 # ── KPI 카드 4개 ──────────────────────────────────────────────────────
 def render_kpi_cards(net_receipt: int, total_sales: int, total_point: int, anomaly_count: int):

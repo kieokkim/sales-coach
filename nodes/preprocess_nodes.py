@@ -136,9 +136,19 @@ def preprocess_node(state: dict) -> dict:
             logger.warning(f"온라인 전처리 실패: {e}")
             errors.append(f"온라인 전처리 실패: {e}")
 
+    # 둘 다 0건이면 report_date 자체가 잘못 선택됐을 가능성 — 명시적 신호로 승격.
+    # 한쪽만 비어있는 경우(예: 오프라인 매장 휴무)는 정상 케이스이므로 트리거하지 않음.
+    no_data_for_date = False
+    if report_date and offline_processed.empty and online_processed.empty:
+        no_data_for_date = True
+        msg = f"report_date={report_date}: 오프라인/온라인 모두 해당 날짜 데이터 없음"
+        logger.warning(msg)
+        errors.append(msg)
+
     return {
         **state,
         "offline_processed": offline_processed,
         "online_processed": online_processed,
+        "no_data_for_date": no_data_for_date,
         "errors": errors,
     }

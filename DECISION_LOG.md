@@ -2,6 +2,73 @@
 
 ---
 
+### Decision 27: report_date 조용한 실패 버그 수정 — preprocess 조기 분기로 방어
+
+**배경:** 운영검증 세션에서 발견. report_date 중복방지는 2중 방어(전처리
+필터 + DB unique key)로 되어있고, 제0원칙 2단계("실패를 안다" —
+NO_QUERY_POSSIBLE류 graceful degradation)를 완료로 판단했었다. 하지만
+report_date를 잘못 선택했을 때(업로드 파일에 그 날짜 데이터가 아예 없는
+경우) 에러 없이 조용히 빈 리포트가 나가는 엣지케이스를 놓치고 있었다 —
+2단계가 실제로는 이 케이스를 커버 못 하고 있었던 것.
+
+**원인 (원인추적만 먼저 수행, 코드 수정 전 결과 보고 후 승인받아 진행):**
+`preprocess_nodes.py`의 `_preprocess_offline`/`_preprocess_online`이
+report_date로 필터링한 뒤 결과가 비면 `logger.warning()`만 찍고
+`state["errors"]`엔 안 올라감. 이후 `kpi_compute_node`가 빈 df를
+`[]`로 정상 처리(예외 없음) → `anomaly_detect_node`는 빈 records라
+for loop 자체가 안 돎 → 이상치 0건 → `pages/3_report.py`가 이상치
+0건을 초록 "정상" 뱃지로 렌더링. 사용자에게 도달하는 신호가 하나도
+없이, 오히려 진짜 이상 상황보다 더 정상처럼 보이는 역설적 결과.
+(참고: report_date가 DB에 이미 전량 적재된 케이스는 별개로 조사했으나
+버그 아님 — kpi_summary는 업로드 파일에서 그때그때 새로 계산되므로 DB
+중복 여부와 무관하고, `db_skipped_count>0` 배너로 이미 명시적으로
+표시되고 있었음.)
+
+**옵션 비교:**
+1. 업로드 UI 단에서 사전 차단 — 파일 업로드 시점에 날짜 존재 여부를
+   미리 스캔해 유효한 날짜만 선택 가능하게 제한.
+2. `NO_QUERY_POSSIBLE`류 명시적 실패 상태만 신설 — 에러만 표시하고
+   나머지 파이프라인은 그대로 실행.
+3. **그래프 내 조기 분기 (채택)** — preprocess 직후 데이터 유무를
+   판정해, 없으면 kpi_compute~commentary(LLM 3회 호출 포함) 전부
+   스킵하고 리포트 생성 단계로 바로 이동.
+
+**결정:** 옵션3 채택. 옵션2보다 나은 점은 무의미한 계산(0/None 값
+연쇄) 자체를 없애는 것 — 특히 insight_node/action_node/commentary_node
+가 각각 LLM을 호출하는데, 빈 데이터로 이 3개를 그대로 돌리는 건 명백한
+낭비. 그래프 라우팅은 기존 `_route_after_commentary` 컨벤션(output_options
+에 따라 build_html/build_excel 분기)을 그대로 재사용해 새 분기 메커니즘을
+발명하지 않았다. UI 단 사전 차단(옵션1)은 "업로드 파일을 열어봐야
+날짜 유무를 알 수 있다"는 제약상 지금 구조에서 더 큰 변경이 필요해
+범위 밖으로 미룸.
+
+**구현:** `preprocess_node`에서 오프라인/온라인 필터링 결과가 **둘 다**
+0건일 때만 `state["no_data_for_date"]=True` + `errors`에 append(한쪽만
+비면 정상 케이스 — 예: 오프라인 매장만 휴무). `graph.py`에
+`_route_after_preprocess` 라우팅 함수 신설, `preprocess→kpi_compute`
+직접 엣지를 조건부 엣지로 교체(`has_data`→kpi_compute, 그 외엔
+`_route_after_commentary` 재사용해 build_html/build_excel로 직행).
+`pages/3_report.py`는 `no_data_for_date` True면 `st.error`로 명확한
+배너 띄우고 `st.stop()`으로 KPI 카드~탭 전체 렌더링 차단.
+
+**검증:** `graph.invoke()` 직접 호출로 정상 날짜(20250401, 데이터 있음)
+와 오선택 날짜(20250701, 데이터 없음) 양쪽 확인 — 정상 날짜는
+`no_data_for_date=False`로 기존과 동일 경로, 오선택 날짜는
+`kpi_summary`/`anomalies`/`llm_commentary`가 state에 아예 안 생길
+정도로 8개 노드가 완전히 스킵됨을 로그로 확인. `eval/eval_runner.py`
+91일 재실행 — 91.2%(83/91), FAIL 8건 목록까지 기존과 완전히 동일
+(eval_runner가 애초에 `preprocess_node`/`graph.py`를 안 거치고 내부
+함수를 직접 호출하는 구조라 이번 변경 경로 자체를 안 타므로 회귀
+불가능한 구조적 확인).
+
+**교훈:** "실패를 안다"(2단계)를 완료로 판단했던 기준이 안전조건
+전체가 아니라 **주로 확인했던 경로**(정상 실행 중 발생하는 에러)만
+커버하고 있었다. graceful degradation 설계는 "에러가 나는 경우"뿐
+아니라 "입력이 조용히 사라지는 경우"(빈 필터링 결과)도 별도로 점검
+대상에 넣어야 한다 — 예외가 안 던져진다고 안전한 게 아니다.
+
+---
+
 ### Decision 26: anchor_set 재검토 — 프로모션 대상 scope 데이터 공백 발견 (코드 변경 없음)
 
 **배경:** Decision 25 작업 중 0501 Chair Zero Black 반품(qty=3, 738,150원,

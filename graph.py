@@ -23,6 +23,7 @@ class SalesDailyState(TypedDict):
     output_options: list[str]
     recipient_emails: list[str]
     report_date: str
+    no_data_for_date: bool
 
     # 중간 결과
     offline_df: Any
@@ -69,6 +70,13 @@ def _route_after_commentary(state: SalesDailyState) -> str:
     return "html_first"
 
 
+def _route_after_preprocess(state: SalesDailyState) -> str:
+    if state.get("no_data_for_date"):
+        # kpi_compute~commentary(LLM 3회 호출 포함) 전부 건너뛰고 리포트 생성으로 바로 이동
+        return _route_after_commentary(state)
+    return "has_data"
+
+
 def _route_after_html(state: SalesDailyState) -> str:
     options = set(state.get("output_options", ["html", "excel"]))
     if "excel" in options:
@@ -96,7 +104,14 @@ def build_graph():
 
     graph.set_entry_point("file_load")
     graph.add_edge("file_load", "preprocess")
-    graph.add_edge("preprocess", "kpi_compute")
+
+    # preprocess → no_data_for_date면 kpi_compute~commentary 전부 스킵, 바로 리포트 생성으로
+    graph.add_conditional_edges(
+        "preprocess",
+        _route_after_preprocess,
+        {"has_data": "kpi_compute", "html_first": "build_html", "excel_only": "build_excel"},
+    )
+
     graph.add_edge("kpi_compute", "db_save")
     graph.add_edge("db_save", "db_load_cumulative")
     graph.add_edge("db_load_cumulative", "target_compare")
