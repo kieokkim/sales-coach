@@ -105,6 +105,12 @@ def build_patterns_context(state: dict) -> str:
                 f"30일 평균 {r['return_rate_avg']:.1%} / "
                 f"평균의 {r['multiplier']}배"
             )
+        breakdown = patterns.get("return_reason_breakdown", {})
+        if breakdown:
+            lines.append("  사유별 금액:")
+            for reason, amt in breakdown.items():
+                if amt:
+                    lines.append(f"    {reason}: {amt:,}원")
         lines.append("")
     else:
         lines.append("[반품 이상] 해당 없음")

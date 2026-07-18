@@ -18,6 +18,16 @@ HELINOX_PRODUCT_KEYWORD = "DX1197_CLASSIC 8oz Mug"
 VALID_ORDER_TYPES = ["ZOR", "ZRE"]
 EXCLUDE_ORDER_TYPES = ["ZFD"]
 
+# 반품 사유내역 매핑 — 실제 SAP 오더사유명 문자열 그대로 하드코딩.
+# "빠른 반품"만 하이픈 없이 공백("빠른 반품")인 예외임에 주의.
+# prefix/split 파싱 금지 — 정확한 문자열 매칭만. 매핑에 없는 값은 "기타"로 처리.
+RETURN_REASON_MAP = {
+    "반품-교환": "교환",
+    "반품-변심": "변심",
+    "반품-불량": "불량",
+    "빠른 반품": "빠른반품",
+}
+
 MONTHLY_TARGETS = {
     "2025-04": {
         "_total": 4_500_000_000,

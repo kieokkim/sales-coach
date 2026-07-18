@@ -5,7 +5,14 @@ from datetime import datetime, timedelta
 from itertools import combinations
 import pandas as pd
 
-from config import MONTHLY_TARGETS, PROMOTIONS, DOMAIN_PARAMS, STAT_Z_95, classify_return_severity
+from config import (
+    MONTHLY_TARGETS,
+    PROMOTIONS,
+    DOMAIN_PARAMS,
+    STAT_Z_95,
+    RETURN_REASON_MAP,
+    classify_return_severity,
+)
 from db import get_db
 
 logger = logging.getLogger(__name__)
@@ -199,6 +206,34 @@ def _return_anomalies(state: dict, report_date_db: str) -> list:
                 "flag": True,
             })
     return anomalies
+
+
+def _return_reason_breakdown(state: dict) -> dict:
+    """
+    오늘 반품(ZRE) 사유별 금액 합계 — rule 집계, 판정에는 안 쓴다(서술 전용).
+    반품 이상(_return_anomalies)이 발동한 날에 한해 pattern_detect_node에서 호출.
+    판정 로직(유의성/효과크기 게이트)과 완전히 분리 — 이 함수 결과는
+    top_issue 발동 여부/severity에 어떤 영향도 주지 않는다.
+    """
+    frames = [
+        df for key in ("offline_processed", "online_processed")
+        if (df := state.get(key)) is not None and not df.empty
+        and "오더사유명" in df.columns
+    ]
+    if not frames:
+        return {}
+
+    df = pd.concat(frames, ignore_index=True)
+    zre = df[df["오더유형"] == "ZRE"]
+    if zre.empty:
+        return {}
+
+    unmapped = set(zre["오더사유명"].dropna()) - set(RETURN_REASON_MAP) - {""}
+    for val in unmapped:
+        logger.warning(f"return_reason_breakdown: 매핑에 없는 오더사유명 '{val}' → 기타로 처리")
+
+    reason = zre["오더사유명"].map(RETURN_REASON_MAP).fillna("기타")
+    return zre.groupby(reason)["매출"].sum().astype(int).to_dict()
 
 
 def _forecast(state: dict, report_date_raw: str) -> dict:
@@ -846,6 +881,7 @@ def pattern_detect_node(state: dict) -> dict:
         "channel_trends": [],
         "category_movers": [],
         "return_anomalies": [],
+        "return_reason_breakdown": {},
         "forecast": {},
         "promo_effect": {},
         "purchase_combo": {},
@@ -878,6 +914,12 @@ def pattern_detect_node(state: dict) -> dict:
         patterns["return_anomalies"] = _return_anomalies(state, report_date_db)
     except Exception as e:
         logger.warning(f"return_anomalies 실패: {e}")
+
+    if patterns["return_anomalies"]:
+        try:
+            patterns["return_reason_breakdown"] = _return_reason_breakdown(state)
+        except Exception as e:
+            logger.warning(f"return_reason_breakdown 실패: {e}")
 
     try:
         patterns["forecast"] = _forecast(state, report_date_raw)

@@ -31,6 +31,11 @@ _SYSTEM_PROMPT = (
 
     "## 카테고리별 판정 기준\n"
     "- 반품이슈: 오늘 반품률이 30일 평균의 3배 이상이거나 판매 없이 반품만 집중 발생\n"
+    "  ([반품 이상] 섹션에 '사유별 금액'이 있으면 반영하세요. 숫자를 기계적으로\n"
+    "   나열하지 말고 어떤 사유가 우세한지 자연스럽게 녹이되, 인용하는 금액은\n"
+    "   반드시 제공된 원본 수치와 일치해야 합니다 — 왜곡·반올림 임의 변경 금지.\n"
+    "   사유별 금액이 있으면 반드시 언급하세요 — 생략 금지. 금액이 큰 사유부터\n"
+    "   순서대로 서술하세요.)\n"
     "- 수익성문제: [할인/마진] 섹션의 '마진 편차'가 -3%p 이하\n"
     "  (이 회사 정상 마진은 약 28%. 절대값이 낮은 것 자체는 이슈가 아님.\n"
     "   오늘 판매 믹스로 기대되는 마진보다 실제가 낮다 = 할인/가격 훼손)\n"
@@ -213,12 +218,23 @@ def _severity_phrase(severity: str) -> str:
     return "주의 깊게 지켜볼 필요가 있습니다."
 
 
+def _reason_breakdown_sentence(breakdown: dict) -> str:
+    """rule이 집계한 사유별 금액을 결정론적으로 문장화. LLM 개입 없음.
+    금액순 정렬, 0원 사유는 가독성 위해 생략."""
+    items = sorted(((k, v) for k, v in breakdown.items() if v), key=lambda kv: -kv[1])
+    if not items:
+        return ""
+    parts = ", ".join(f"{k} {v:,}원" for k, v in items)
+    return f" 사유별로는 {parts} 순으로 컸습니다."
+
+
 def _build_fallback_issue(category: str, patterns: dict, kpi_summary: dict) -> dict:
     """
     LLM이 누락한 GT 카테고리에 대해, rule의 raw 데이터로
     결정론적 자연어 문장을 생성한다. LLM 호출 없음 — 판단은 이미 rule이 끝냄.
     """
     if category == "반품이슈":
+        breakdown = patterns.get("return_reason_breakdown", {})
         ra = patterns.get("return_anomalies", [])
         if ra:
             top = ra[0]
@@ -226,6 +242,7 @@ def _build_fallback_issue(category: str, patterns: dict, kpi_summary: dict) -> d
                 f"{top.get('product_name', '')}의 반품이 오늘 {top.get('today_returns', 0)}건 "
                 f"발생해 평균 대비 {top.get('multiplier', 0)}배 수준입니다. "
                 f"{_severity_phrase(top.get('severity', 'medium'))}"
+                f"{_reason_breakdown_sentence(breakdown)}"
             )
             return {"issue": issue, "category": category}
 
