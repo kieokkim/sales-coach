@@ -1,5 +1,33 @@
 # SalesCoach Decision Log
 
+## 핵심 결정 색인 (Tier1)
+- D2: rule→insight→action→commentary 3단계 판단레이어(에이전트 정체성의 시작)
+- D11: eval/ 인프라 구축(측정 시스템 자체의 기원, 이후 모든 %가 이 위에서 나옴)
+- D13: COMPANY_PROFILE.md+anchor_set 최초 도입(사람 라벨 ground truth의 시작)
+- D19: 추세 방향게이트, Eval 67.7→93.5%(단일 최대 점프, "판단개선 vs 측정정상화" 구분원칙의 실증)
+- D21: 0525 "정답 둘"(anchor_set이 왜 필요한지의 결정적 증거, 이후 계속 인용됨)
+- D25: 반품 effect-size EDA 완전분리불가 확인(하드튜닝 회피 철학의 근거, D29/30/31이 반복 인용)
+- D29/30: 만성신호·신뢰도분기 조사 후 보류("안 만든 판단" 기록의 정석 사례)
+- D31: anchor_set 확장 — severity가 eval 사각지대임을 발견(현재 미해결 상태 규정)
+
+## Tier2 — 한 줄 요약
+- D4: NO_QUERY_POSSIBLE 가드(채팅기능 "모르면 모른다" 처리)
+- D5: 고객코호트→구매패턴 피벗(고객ID 부재로 스코프 재정의)
+- D10: context_builder.py 공통화(새 patterns는 여기만 추가하는 규칙의 근원)
+- D12: 트랙A(오늘)/트랙B(추세) 프레임 확립
+- D14: 마진 절대→상대기준 전환, COMPANY_PROFILE 오류(정상마진 오기재) 발견·정정
+- D16: 프롬프트 반복실패→rule 필터 전환(_enforce_track_a_isolation)
+- D17: category rule 게이트 도입(오탐 방어)
+- D18: 반품 Wilson score 통계화 시도(회귀), 이후 D25가 effect-size로 보완완성
+- D20: return_only 경로에도 효과크기 게이트 적용(D18 대칭완성)
+- D23: 재현율 바닥 발견(FAIL 8~9할이 누락)→완전성 게이트 도입
+- D24: 완전성게이트 try/except 우회버그 수정("실패를 안다" 2단계 완성)
+- D26: 프로모션 scope 필드 데이터 공백 발견(실사용 연동 시 재검토 대상)
+- D27: report_date 조용한 실패 수정(그래프 조기분기 패턴)
+- D28: 반품 사유내역 서술레이어(RETURN_REASON_MAP, rule=판단/LLM=서술 경계 재확인)
+
+## Tier3 — 원본에만(본문 참조, 색인 생략): D1, D3, D6, D7, D8, D9, D15, D22
+
 ---
 
 ### Decision 31: anchor_set 6개 확장 — severity가 eval 사각지대임을 발견
