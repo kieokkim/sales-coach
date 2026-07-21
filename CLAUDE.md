@@ -4,6 +4,9 @@
 Claude Code가 세션 시작 시 자동으로 읽는 얇은 상태파일. 판단 근거 전문은
 DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브라 여기서
 통째로 읽지 않는다. 필요한 부분만 아래 규칙대로 부분 참조.
+- 정확한 커밋 해시는 여기 적지 않는다. 필요하면 git log -1 --oneline으로
+  직접 확인. 해시를 문서에 박으면 다음 커밋마다 stale해짐(2026-07 실제
+  경험: 177b03e로 적었다가 한 세션 만에 2커밋 밀림).
 
 ## 작업 규율 (거의 안 바뀜)
 - Rule-based First: 판단(탐지/스코어링)은 deterministic rule. LLM은 설명/서술만.
@@ -55,8 +58,8 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 버전: v1.7 + 반품 사유내역 서술레이어(방식A) + anchor_set 9항목
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
-- HEAD: CLAUDE.md 통합 커밋(177b03e)까지. anchor_set.json 병합은
-  이번 커밋으로 포함, 다수 unpushed.
+- HEAD: Decision 31(anchor_set 9항목+severity 사각지대 발견)까지 반영,
+  다수 unpushed.
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
 
 ## 다음 과제 (2026-07 기준, 우선순위 아님 - 세션 시작 시 확정)
