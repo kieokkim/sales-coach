@@ -55,7 +55,8 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 버전: v1.7 + 반품 사유내역 서술레이어(방식A) + anchor_set 9항목
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
-- HEAD: anchor_set 병합 + Decision 31 커밋까지, 다수 unpushed.
+- HEAD: CLAUDE.md 통합 커밋(177b03e)까지. anchor_set.json 병합은
+  이번 커밋으로 포함, 다수 unpushed.
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
 
 ## 다음 과제 (2026-07 기준, 우선순위 아님 - 세션 시작 시 확정)

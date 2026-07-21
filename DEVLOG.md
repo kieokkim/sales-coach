@@ -38,6 +38,29 @@ DECISION_LOG.md에 기록 — Decision 29(시간축/만성 신호 분석: 방향
 
 ---
 
+## 2026-07-19: anchor_set 6개 확장 — severity eval 사각지대 발견 (Decision 31)
+
+**발견:** 반품 경계선 케이스 6개 사람 라벨링 결과, category는 6/6
+rule과 일치했으나 severity는 2/6이 갈렸다(0518, 0606). override 5개
+날짜로 eval 재실행해봤지만 PASS/FAIL이 전혀 안 바뀌었다.
+
+**원인:** eval_insight.py가 category set만 비교하고 severity는 애초에
+채점 대상이 아니었다. 즉 Decision 18~25에서 공들여 만든 severity
+effect-size 문턱이 지금까지 사람 기준으로 검증된 적이 없었고, 검증해도
+현재 채점기 구조로는 점수에 반영되지 않는 사각지대였다.
+
+**조치:** anchor_set.json에 6개 라벨 병합, override 전후로 eval
+비교 실행. 발견/판단/보류 근거를 DECISION_LOG.md Decision 31로 기록
+(severity 채점 확장은 갈림 표본 2건뿐이라 지금 착수 안 함, 표본 더
+쌓은 뒤 재검토).
+
+**결과:** override 5개 날짜(0415/0426/0518/0606/0630) PASS 유지 확인.
+91일 전체 델타는 함께 보지 않음 — override 안 된 날짜의 FAIL 변동은
+LLM run-to-run 비결정성 노이즈일 수 있어 이번 변경의 효과로 잡지
+않고 별도 표기했다.
+
+---
+
 ## 2026-07-21: 상태파일 CLAUDE.md로 통합 — COACHING_NOTES/NEXT_SESSION 은퇴
 
 **발견:** COACHING_NOTES.md와 NEXT_SESSION.md가 같은 역할(현재상태/다음
