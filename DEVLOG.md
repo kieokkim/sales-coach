@@ -35,3 +35,29 @@ DECISION_LOG.md에 기록 — Decision 29(시간축/만성 신호 분석: 방향
 완주 + 실사용자 + 세 번째 도메인 확보 후 반품·매출·제품추이 공통구조로
 재검토, risk_items 신뢰도 분기는 eval이 risk_items를 채점하게 되거나
 완전성 게이트가 category별 분기를 갖추기 전까지 보류.
+
+---
+
+## 2026-07-21: 상태파일 CLAUDE.md로 통합 — COACHING_NOTES/NEXT_SESSION 은퇴
+
+**발견:** COACHING_NOTES.md와 NEXT_SESSION.md가 같은 역할(현재상태/다음
+과제)을 자처하면서 서로 다른 시점에 stale해졌다. 실사례: 이미 보류
+확정된(Decision 30) risk_items 신뢰도 분기가 NEXT_SESSION.md의 "다음
+과제" 목록에 그대로 남아있었다 — 결정은 DECISION_LOG.md에 기록됐지만
+NEXT_SESSION.md는 그 결정을 반영하지 않은 채 멈춰 있었다.
+
+**원인:** 세션 상태를 담는 파일이 COACHING_NOTES.md / NEXT_SESSION.md
+두 개로 분산돼 있어, 한쪽만 갱신되고 다른 쪽은 방치되는 구조였다.
+갱신 책임이 어느 파일에 있는지 명확하지 않았던 것이 근본 원인.
+
+**조치:** CLAUDE.md 하나로 통합, 2구역 구성(고정규율 / 현재상태).
+기존 두 파일 git rm으로 은퇴. 스킬 3개의 stale 수치 정정 —
+feature-filter(SalesCoach 미검증 판단 코어를 anchor_set 9항목/category
+6/6 일치/severity 2/6 갈림으로 갱신), decision-log(하드코딩된
+"Decision 13까지" 예시 번호 제거, "파일 끝에서 확인" 메커니즘만 남김),
+eval-discipline(anchor_set override 날짜와 비override 날짜를 분리해서
+봐야 한다는 규칙 추가).
+
+**결과:** Claude Code 세션당 자동로드 컨텍스트가 두 파일 분량에서
+CLAUDE.md 하나로 축소됨. DECISION_LOG.md는 참조전용으로 격리(필요
+시에만 grep으로 부분 조회, 통째로 읽지 않음).
