@@ -19,5 +19,43 @@
     "severity": "unknown",
     "note": "어버이날 프로모션(5/1~5/10) 기간 중 반품 급증. 이 제품이 프로모션 대상이었는지가 인과 판단의 핵심이나, 현재 샘플 데이터에 프로모션 대상 제품(scope) 필드가 없어 확인 불가. 위의 '2025-05-01: 정상' 라벨은 매출 급등 전반에 대한 판단이었지 이 반품 건을 다룬 적 없음(note 원문 재확인 결과) — 별개 신호로 판단보류 처리.",
     "labeled_by": "human"
+  },
+  "2025-05-18": {
+    "top_issue_category": "반품이슈",
+    "severity": "medium",
+    "note": "표본이 당일 판매개수라면 텐트류의 경우는 많이 판매된 수준이고, 텐트류는 고액 제품으로 고객의 반품률도 높은 편이기 때문에 받아들일 정도임. 그럼에도 반품으로 인한 매출 저하를 고려해야 하므로 medium에 배치",
+    "labeled_by": "user"
+  },
+  "2025-06-30": {
+    "top_issue_category": "반품이슈",
+    "severity": "high",
+    "note": "평소 반품률 0인데 갑자기 3개 발생한건 문제가 있음.",
+    "labeled_by": "user"
+  },
+  "2025-06-06": {
+    "top_issue_category": "반품이슈",
+    "severity": "low",
+    "note": "기준을 넘는건 맞지만 표본 대비 반품개수나 배수도 매우 높지 않으므로 low 가능",
+    "labeled_by": "user"
+  },
+  "2025-04-15": {
+    "top_issue_category": "반품이슈",
+    "severity": "medium",
+    "note": "30일간 반품없던 제품의 첫 반품이라 유의해야하지만, 당일 전체 매출 중 반품금액의 비중과 추이를 살펴보기 위해 medium으로 선정",
+    "labeled_by": "user"
+  },
+  "2025-04-26": {
+    "top_issue_category": "반품이슈",
+    "severity": "medium",
+    "note": "수치적으로는 medium이나 반품된 텐트의 종류가 다양하게 반품되었다는게 절대적인 반품거래건수가 많은지, 한 구매고객의 단일 반품건인지 살펴보아야함.",
+    "labeled_by": "user"
+  },
+  "2025-05-27_v.tar_p1_black": {
+    "product": "V.TAR P1 Black",
+    "signal": "qty=2, amt=1,180,000원, mult=98.4x (today_total=5)",
+    "top_issue_category": "반품이슈",
+    "severity": "medium",
+    "note": "표본이 낮아 반품률이 높은 것으로 보이나 그 반품된 금액이 당일 매출금액 대비 미미하다면 medium으로, 목표미달에 관여할 정도라면 high로 보는게 맞음.",
+    "labeled_by": "user"
   }
 }
