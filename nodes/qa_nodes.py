@@ -50,15 +50,19 @@ def get_schema_context() -> str:
 def sql_guard(sql: str) -> tuple[bool, str]:
     sql_clean = sql.strip().rstrip(";")
     sql_upper = sql_clean.upper()
+    # 탐지 전용 정규화본 — 큰따옴표/백틱/대괄호로 감싼 식별자가 \w+ 매칭을
+    # 피해 FORBIDDEN_KEYWORDS·테이블명 검사를 우회하던 문제(Decision 32)를
+    # 막는다. 실행되는 sql_clean(원본)은 안 건드림 — 탐지 로직만 영향.
+    sql_detect = re.sub(r'["`\[\]]', "", sql_upper)
 
     if not sql_upper.startswith("SELECT"):
         return False, "SELECT 쿼리만 허용됩니다."
 
     for kw in FORBIDDEN_KEYWORDS:
-        if re.search(rf"\b{kw}\b", sql_upper):
+        if re.search(rf"\b{kw}\b", sql_detect):
             return False, f"금지된 키워드: {kw}"
 
-    referenced_tables = set(re.findall(r"\bFROM\s+(\w+)|\bJOIN\s+(\w+)", sql_upper))
+    referenced_tables = set(re.findall(r"\bFROM\s+(\w+)|\bJOIN\s+(\w+)", sql_detect))
     flat = {t for pair in referenced_tables for t in pair if t}
     disallowed = flat - {t.upper() for t in ALLOWED_TABLES}
     if disallowed:

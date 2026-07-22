@@ -96,6 +96,10 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙:
-- 만질 파일:
-- 완료 기준:
+- 트랙: sql_guard 화이트리스트 우회 수정 (Decision 32 발견 버그 1번, 다음과제 1순위)
+- 만질 파일: nodes/qa_nodes.py
+- 완료 기준: 이전 조사에서 우회 성공했던 케이스(큰따옴표/대괄호/백틱으로
+  감싼 sqlite_master, product_master 조회) 전부 차단 + 기존 정상 케이스
+  (허용 테이블 평범한 SELECT) 안 막힘. 세미콜론 스태킹(sqlite3 execute()
+  "한 문장만" 룰로 이미 별도 방어됨)은 이번 세션 범위 아님, 손 안 댐.
+  다음과제 2번(완전성게이트)/3번(채팅가드)은 이번 세션 범위 아님.
