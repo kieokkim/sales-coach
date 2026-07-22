@@ -58,11 +58,24 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 버전: v1.7 + 반품 사유내역 서술레이어(방식A) + anchor_set 9항목
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
-- HEAD: Decision 31(anchor_set 9항목+severity 사각지대 발견)까지 반영,
-  다수 unpushed.
+- HEAD: Decision 32(파이프라인 12개 엣지케이스 사전설계 감사, 버그 3건
+  확정 — 미수정)까지 반영, 다수 unpushed.
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
+- 2026-07 세션: 체계적 엣지케이스 감사 완료(Decision 32) — 코드 수정 없음.
 
-## 다음 과제 (2026-07 기준, 우선순위 아님 - 세션 시작 시 확정)
+## 다음 과제 (2026-07 기준, 아래 3개는 우선순위 순 - Decision 32 감사에서 확정된 버그, 전부 미수정)
+1. **sql_guard 화이트리스트 정규식 우회 수정** — `ALLOWED_TABLES` 검사가
+   큰따옴표/대괄호/백틱으로 감싼 테이블명을 못 잡음. 비허용 테이블
+   product_master(원가 컬럼 포함) 실제 조회 성공까지 확인된 보안 문제 —
+   이번 감사 최대 발견. nodes/qa_nodes.py의 `sql_guard()` 참조.
+2. **완전성게이트 API키 부재 시 우회 수정** — nodes/insight_node.py:325-327
+   조기 return이 try/except/완전성게이트(383)를 전부 건너뜀. Decision 24가
+   고친 "호출 도중 예외" 경로와는 별개 지점.
+3. **채팅 QA 빈 데이터 가드 보강 (최후순위, 채팅 기능 한정)** — `generate_answer`의
+   `if not rows` 가드가 SUM()/COUNT() 집계 결과인 `[{"col": None}]`(행 1개,
+   빈 리스트 아님)를 못 잡음. nodes/qa_nodes.py 참조.
+
+## 다음 과제 (기존, 우선순위 아님 - 세션 시작 시 확정)
 - anchor_set 2라운드 라벨링 후보: 0504, 0510, 0611
 - severity 채점 확장 재검토: category는 6/6 rule과 일치, severity는 2/6 갈림
   (0518, 0606) - 지금 eval이 severity 미채점. 표본 더 쌓은 뒤 재검토.

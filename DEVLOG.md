@@ -84,3 +84,35 @@ eval-discipline(anchor_set override 날짜와 비override 날짜를 분리해서
 **결과:** Claude Code 세션당 자동로드 컨텍스트가 두 파일 분량에서
 CLAUDE.md 하나로 축소됨. DECISION_LOG.md는 참조전용으로 격리(필요
 시에만 grep으로 부분 조회, 통째로 읽지 않음).
+
+---
+
+## 2026-07-22: 파이프라인 전체 엣지케이스 체계적 감사 — 버그 3건 확정 (코드 수정 없음)
+
+**발견:** 지금까지 버그(report_date 조용한 실패/Decision 27, 완전성게이트
+try/except 우회/Decision 24)는 전부 실사용 검증 중 우연히 걸린 것이었다.
+파이프라인 전 구간(업로드→전처리→집계→패턴탐지→LLM 3노드→리포트→채팅
+QA)을 대상으로 한 의도적 사전 감사가 없었다는 점을 인지, 12개 엣지케이스를
+세션 시작 전에 리스트업하고 순서대로 조사·재현했다.
+
+**조사 방법:** 코드 추적 + 실제 재현(합성 데이터/DB 복사본으로 실행,
+salescoach.db 원본은 안 건드림). 10개는 방어됨/정상으로 확인, 3개는
+버그로 확정. 코드 수정은 이번 세션에서 하지 않음 — 조사와 분류만.
+
+**결과 — 버그 3건 (전부 미수정, 우선순위는 CLAUDE.md 다음 과제 참조):**
+
+1. sql_guard 화이트리스트 정규식 우회 — 이번 감사 최대 발견. `ALLOWED_TABLES`
+   검사가 큰따옴표/대괄호/백틱으로 감싼 테이블명을 못 잡음. 복사한 DB에서
+   `SELECT * FROM "product_master"` 실행 성공, 비허용 테이블인
+   product_master의 cost_price(원가) 실제 조회됨. 세미콜론 스태킹은
+   sqlite3 `execute()`의 "한 문장만 허용" 규칙으로 별도 방어되고 있음을
+   함께 확인.
+2. 완전성게이트가 API키 부재 시 우회됨 — nodes/insight_node.py:325-327
+   조기 return이 try/except/완전성게이트(383번 줄)를 전부 건너뜀. Decision
+   24가 고친 "호출 도중 예외" 경로와는 다른 지점이라 그때 안 잡혔음.
+   합성 GT(severity=high)로 실측 재현 — top_issues가 아예 채워지지 않음.
+3. 채팅 QA 빈 데이터 가드 무력화 (채팅 기능 한정, 최후순위) — `generate_answer`의
+   `if not rows` 가드가 SUM()/COUNT() 집계의 `[{"col": None}]`(행 1개,
+   빈 리스트 아님)를 못 잡아 LLM 호출로 새버림.
+
+전체 판정 근거·재현 상세는 DECISION_LOG.md Decision 32 참조.
