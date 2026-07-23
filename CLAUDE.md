@@ -59,19 +59,24 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
 - HEAD: Decision 32(파이프라인 12개 엣지케이스 사전설계 감사, 버그 3건
-  확정 — 미수정)까지 반영, 다수 unpushed.
+  확정 — 전부 수정완료)까지 반영, 다수 unpushed.
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
-- 2026-07 세션: 체계적 엣지케이스 감사 완료(Decision 32) — 코드 수정 없음.
+- 2026-07 세션: Decision 32 버그 3건(sql_guard 우회 / 완전성게이트 API키우회
+  / 채팅QA SUM집계 None행 가드) 전부 수정 완료. 아래 "다음 과제" 블록 해소됨.
 
-## 다음 과제 (2026-07 기준, Decision 32 감사에서 확정된 버그 3건)
+## 다음 과제 (2026-07, Decision 32 감사에서 확정된 버그 3건 — 전부 완료)
 1. ~~sql_guard 화이트리스트 정규식 우회~~ — **수정완료(ea6e95d)**. 인용부호
    정규화 후 탐지(`sql_detect`)로 patch. tests/test_sql_guard.py 회귀 확인.
 2. ~~완전성게이트 API키 부재 시 우회~~ — **수정완료**. if/else 전환으로
    조기 return 제거, 완전성게이트 항상 실행. tests/test_insight_node_completeness.py
    + E2E 2건(API키 유/무) 검증 완료, 커밋 대기 중.
-3. **채팅 QA 빈 데이터 가드 보강 (남은 마지막 1건, 채팅 기능 한정)** — `generate_answer`의
-   `if not rows` 가드가 SUM()/COUNT() 집계 결과인 `[{"col": None}]`(행 1개,
-   빈 리스트 아님)를 못 잡음. nodes/qa_nodes.py 참조.
+3. ~~채팅 QA SUM집계 None행 가드~~ — **수정완료**. `generate_answer`에
+   행 1개+any None 체크 추가(SUM/AVG 매칭 0건 시 값 None 행 1개 반환,
+   COUNT는 0이라 None 아님 — daily_kpi/daily_product는 insert 시 항상
+   숫자 삽입이라 실제 매칭행엔 None 없음, any-None이 안전한 시그널).
+   tests/test_qa_null_aggregate.py 신규(4케이스: 매칭없음/매칭있음/기존
+   빈리스트회귀/SUM+COUNT(*) 병행) pytest 통과, LLM mock으로 호출횟수까지
+   검증. 커밋 대기 중.
 
 ## 다음 과제 (기존, 우선순위 아님 - 세션 시작 시 확정)
 - anchor_set 2라운드 라벨링 후보: 0504, 0510, 0611
@@ -94,15 +99,18 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: 완전성게이트 API키우회 수정 (Decision 32 발견 버그 2번, 다음과제 2순위.
-  1번 sql_guard는 전 세션에 수정완료·커밋됨(ea6e95d))
-- 만질 파일: nodes/insight_node.py
-- 완료: 324-380번 조기 return을 if/else로 전환(완전성게이트가 API키
-  유무와 무관하게 항상 실행). tests/test_insight_node_completeness.py
-  신규(API키없음/호출중예외/정상 3케이스 pytest 통과). E2E 검증 2건 —
-  report_date=20250630(anchor_set: 반품이슈 high)로 실제 graph.invoke():
-  (1) API키 미설정 상태 — top_issues에 반품이슈 fallback 정상 삽입,
-  errors에 안내문구 정상 포함, db_skipped_count로 DB 무손상 확인.
-  (2) API키 설정 상태(재들여쓰기된 else분기 실행 경로) — top_issues/
-  actions/commentary 전부 정상 생성, 구조 이상 없음. 91일 전체 eval은
-  판정로직이 아닌 흐름제어 변경이라 미실행(eval실행규율 기준).
+- 트랙: 채팅QA SUM집계 None행 가드 (Decision 32 발견 버그 3번, 다음과제
+  마지막 순위. 1번 sql_guard·2번 완전성게이트는 전 세션에 수정완료)
+- 만질 파일: nodes/qa_nodes.py
+- 완료: generate_answer()의 `if not rows` 가드 뒤에 `len(rows)==1 and
+  any(v is None ...)` 체크 추가 — SUM/AVG 집계 매칭 0건 시 None값 행
+  1개를 안내메시지로 조기 처리, LLM 호출 안 넘어감. 채택 전 db.py insert
+  경로(db_nodes.py) 감사 — daily_kpi/daily_product 모든 숫자컬럼은 insert
+  시 항상 실값(0 포함) 삽입, None 없음 확인 → any-None이 오탐 없는 안전한
+  시그널로 판단. tests/test_qa_null_aggregate.py 신규 4케이스(매칭없음/
+  매칭있음/기존빈리스트회귀/SUM+COUNT(*)병행) 전부 pytest 통과, LLM은
+  monkeypatch로 ChatOpenAI 자체를 fake 클래스로 치환해 호출횟수까지 검증
+  (실네트워크 요청 없음). 기존 tests/test_qa_sql.py, test_sql_guard.py,
+  test_insight_node_completeness.py 포함 28개 전체 재실행 — 회귀 없음.
+  91일 eval은 채팅QA 로직이라 무관(eval실행규율 기준), 미실행.
+  Decision 32 버그 3건 전부 완료 — 다음 세션은 새 트랙 필요.

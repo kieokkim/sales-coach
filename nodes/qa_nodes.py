@@ -132,6 +132,13 @@ def generate_answer(question: str, sql: str, rows: list[dict]) -> str:
     if not rows:
         return "조회된 데이터가 없습니다."
 
+    # SUM/AVG 등 집계함수는 매칭 행 0건이어도 값이 None인 행 1개를 반환함
+    # (COUNT는 매칭 0건이면 0, None 아님). daily_kpi/daily_product는 insert
+    # 시 항상 숫자값(0 포함)을 넣으므로 실제 매칭 행에는 None이 없음 —
+    # 행 1개 + None값 존재는 "매칭 없음"의 안전한 시그널.
+    if len(rows) == 1 and any(v is None for v in rows[0].values()):
+        return "조회된 데이터가 없습니다."
+
     system_prompt = (
         "당신은 리테일 매출 데이터 분석 어시스턴트입니다.\n"
         "조회 결과를 바탕으로 사용자의 질문에 한국어로 답변하세요.\n"
