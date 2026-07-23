@@ -58,25 +58,45 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 버전: v1.7 + 반품 사유내역 서술레이어(방식A) + anchor_set 9항목
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
-- HEAD: Decision 33(매장 채널구분 하드코딩 발견, 업로드 UI 유연화 설계결정
-  — 코드 수정 없음)까지 반영, 다수 unpushed.
-- 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
-- 2026-07 세션: Decision 32 버그 3건(sql_guard 우회 / 완전성게이트 API키우회
-  / 채팅QA SUM집계 None행 가드) 전부 수정 완료. 이어서 매장 매핑 확인 중
-  매장이 동적으로 늘어난다는 전제(Store3 여주 곧 추가)가 처음 확인돼
-  Decision 33으로 채널구분 하드코딩 3곳 발견, 근본해결 3단계 설계.
+- HEAD: Decision 33 구현(channel 필드 도입 + 업로드 UI 유연화) 완료,
+  다수 unpushed.
+- 미커밋 WIP: db.py / pages/1_upload.py 중 db.py는 세션 무관 별개 변경
+  그대로 방치 중(monthly_target 테이블 제거 diff). pages/1_upload.py는
+  이번 세션에 전면 재작성돼 별개 WIP와 합쳐짐 — 다음 세션에서 db.py의
+  monthly_target 제거 diff만 분리해 커밋할지 검토 필요.
+- 2026-07 세션: Decision 32 버그 3건 전부 수정 완료 → Decision 33(매장
+  채널구분 하드코딩 발견, 설계결정) → 이번 세션에 실제 구현까지 완료.
+  channel 필드가 daily_kpi 스키마엔 이미 있었지만 db_nodes.py/seed_db.py
+  둘 다 빈 문자열로 하드코딩 삽입해온 사실을 발견, 기존 548행 백필
+  (scripts/backfill_channel.py, 오프라인 273/온라인 275 — 기존 분류와
+  정확히 일치 확인). report_nodes.py/pattern_nodes.py/insight_node.py
+  3곳 교체 도중 **4번째 하드코딩(pages/3_report.py의 OFFLINE_PLATFORMS,
+  실제 리포트 화면의 바차트 색상·채널 배지)**을 추가로 발견해 사용자
+  확인 후 범위 포함, 함께 수정. 업로드 UI는 다중파일+컬럼시그니처
+  자동판별(S/O sum·S/O수량=오프라인, 총금액·청구수량=온라인)로 재설계,
+  graph.py/load_nodes.py는 안 건드림(오프라인/온라인 파일들을 채널별로
+  병합해 임시 xlsx 하나씩으로 만들어 기존 offline_path/online_path
+  인터페이스 그대로 유지). tests/test_channel_field.py 신규 6케이스
+  (신규매장 채널태깅/월누적게이트 동적인식/엑셀출력/30일추세SQL 등)
+  전부 pytest 통과, 기존 34개 포함 전체 회귀 없음. 91일 eval 94.5%
+  (기존 스프레드 90.1~95.6% 이내) — anchor override 5개 날짜 개별
+  재실행 전부 PASS, 91일 배치에서 0426 1건 FAIL했던 건 단독 재실행 시
+  PASS로 확인돼 LLM run-to-run 비결정성 노이즈로 판정(코드 회귀 아님).
 
-## 다음 과제 (2026-07, Decision 33 — channel 필드 도입 및 업로드 UI 유연화)
-1. channel 필드를 DB 스키마에 추가해 업로드 단계에서 이미 정해지는
-   오프라인/온라인 값을 저장.
-2. report_nodes.py `OFFLINE_PLATFORMS` / pattern_nodes.py SQL IN절 /
-   insight_node.py `_CHANNEL_NAMES` 세 곳 전부 매장이름 매칭 대신
-   channel 필드 참조로 교체.
-3. pages/1_upload.py를 오프라인/온라인 고정 2슬롯에서 다중파일 업로드 +
-   컬럼 스키마 기반 채널 자동판별로 재설계.
+## 다음 과제 (2026-07, Decision 33 — channel 필드 도입 및 업로드 UI 유연화, 전부 완료)
+1. ~~channel 필드를 DB 스키마에 추가~~ — **완료**. 스키마엔 이미 있었고
+   실제 문제는 삽입 경로가 빈 문자열 하드코딩이었던 것 → db_nodes.py/
+   scripts/seed_db.py 수정 + 기존 548행 백필(scripts/backfill_channel.py).
+2. ~~report_nodes.py/pattern_nodes.py/insight_node.py 하드코딩 교체~~ —
+   **완료**. 계획한 3곳 + 추가발견 pages/3_report.py까지 총 4곳 전부
+   channel 필드(또는 그날 kpi_summary에서 뽑은 동적 platform 목록) 참조로
+   교체, 매장이름 리스트·SQL IN절 완전 제거.
+3. ~~pages/1_upload.py 다중파일+자동판별 재설계~~ — **완료**. 계획
+   승인받은 대로 구현, graph.py/load_nodes.py 무변경.
    (참고: 매장 색상 매핑 최종확정 — 서울=핑크/부산=블루/제주=오렌지/
    여주=옐로우, HCC=서울·Store1=부산·Store2=제주·Store3=여주. 색상은
-   매장이름이 아니라 판매처명에 포함된 지역 키워드로 매칭할 것.)
+   매장이름이 아니라 판매처명에 포함된 지역 키워드로 매칭할 것 — 아직
+   미구현, 다음 후보 과제로 이동.)
 
 ## 다음 과제 (기존, 우선순위 아님 - 세션 시작 시 확정)
 - config.py MONTHLY_TARGETS 매장이름 키 딕셔너리 확장성 문제(Decision 33
@@ -103,11 +123,15 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: channel 필드 도입 및 업로드 UI 유연화 (Decision 33에서 설계결정,
-  이번 세션은 조사·설계만 — 구현은 미착수)
-- 만질 파일: nodes/kpi_nodes.py, nodes/report_nodes.py, nodes/pattern_nodes.py,
-  nodes/insight_node.py, pages/1_upload.py
-- 완료기준: 위 3단계(① channel 필드 DB 저장 ② 3곳 하드코딩을 channel
-  필드 참조로 교체 ③ 업로드 UI 다중파일+컬럼 자동판별 재설계) 전부
-  끝나고, 가상의 4번째 매장 데이터로 테스트해 채널 오분류가 재현되지
-  않는 것 확인까지.
+- 트랙: channel 필드 도입 및 업로드 UI 유연화 (Decision 33 구현) — 완료.
+  다음 세션은 새 트랙 필요, 아래 "다음 과제(기존)" 목록에서 선택.
+- 만질 파일이었음: nodes/kpi_nodes.py, nodes/db_nodes.py,
+  nodes/report_nodes.py, nodes/pattern_nodes.py, nodes/insight_node.py,
+  pages/1_upload.py, pages/3_report.py(세션 중 추가발견, 사용자 승인
+  후 포함), scripts/seed_db.py, scripts/backfill_channel.py(신규),
+  tests/test_channel_field.py(신규)
+- 완료: 3단계 전부 끝, 4번째 하드코딩(pages/3_report.py)도 발견해
+  같이 수정, 가상의 신규 매장(HCC Store 3)으로 테스트해 channel 필드가
+  report_nodes/pattern_nodes/insight_node 3곳 전부에서 매장이름 목록
+  없이도 정상 "오프라인"으로 분류됨을 tests/test_channel_field.py로
+  확인. 91일 eval 재실행, anchor override 5곳 개별 PASS, 회귀 없음.
