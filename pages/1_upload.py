@@ -2,6 +2,7 @@ import os
 import tempfile
 from datetime import date, timedelta
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -22,21 +23,54 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.divider()
 
-col1, col2 = st.columns(2)
+# 오프라인 판별: S/O sum(또는 S/O수량) 컬럼 — nodes/preprocess_nodes.py:59-60 기준.
+# 온라인 판별: 총금액(또는 청구수량) 컬럼 — nodes/preprocess_nodes.py:103-104 기준.
+OFFLINE_SIGNATURE_COLS = {"S/O sum", "S/O수량"}
+ONLINE_SIGNATURE_COLS = {"총금액", "청구수량"}
 
-with col1:
-    offline_file = st.file_uploader(
-        "오프라인 거래 파일 (필수)",
-        type=["xlsx", "xls"],
-        help="ERP에서 다운로드한 오프라인 거래 Excel 파일",
-    )
 
-with col2:
-    online_file = st.file_uploader(
-        "온라인 거래 파일 (선택)",
-        type=["xlsx", "xls"],
-        help="ERP에서 다운로드한 온라인 거래 Excel 파일",
-    )
+def _detect_channel(columns: set) -> str | None:
+    is_offline = bool(columns & OFFLINE_SIGNATURE_COLS)
+    is_online = bool(columns & ONLINE_SIGNATURE_COLS)
+    if is_offline and not is_online:
+        return "오프라인"
+    if is_online and not is_offline:
+        return "온라인"
+    return None  # 컬럼 시그니처가 없거나(미확인 양식) 둘 다 있음(모호) — 자동판별 불가
+
+
+uploaded_files = st.file_uploader(
+    "거래 파일 업로드 (여러 개 선택 가능)",
+    type=["xlsx", "xls"],
+    accept_multiple_files=True,
+    help="오프라인/온라인 파일을 구분 없이 올리면 컬럼 구성을 보고 자동 분류합니다.",
+)
+
+offline_dfs, online_dfs, unrecognized = [], [], []
+for f in uploaded_files or []:
+    df = pd.read_excel(f)
+    channel = _detect_channel(set(df.columns))
+    if channel == "오프라인":
+        offline_dfs.append(df)
+    elif channel == "온라인":
+        online_dfs.append(df)
+    else:
+        unrecognized.append((f.name, list(df.columns)))
+
+if unrecognized:
+    for fname, cols in unrecognized:
+        st.error(
+            f"'{fname}' 파일의 채널을 자동판별하지 못했습니다. "
+            f"오프라인 기준 컬럼({'/'.join(OFFLINE_SIGNATURE_COLS)}) 또는 "
+            f"온라인 기준 컬럼({'/'.join(ONLINE_SIGNATURE_COLS)}) 중 "
+            f"정확히 하나만 있어야 합니다. 감지된 컬럼: {cols}"
+        )
+
+offline_ready = bool(offline_dfs) and not unrecognized
+if offline_dfs:
+    st.caption(f"오프라인으로 분류됨: {len(offline_dfs)}개 파일")
+if online_dfs:
+    st.caption(f"온라인으로 분류됨: {len(online_dfs)}개 파일")
 
 st.divider()
 
@@ -65,38 +99,30 @@ recipient_input = st.text_area(
     height=80,
 )
 
-with st.expander("⚙️ 타겟 설정 (선택)", expanded=False):
-    st.caption("전체 월 타겟 금액을 설정합니다. 플랫폼별 타겟은 config.py에서 수정하세요.")
-    monthly_target_input = st.number_input(
-        f"{report_date.year}-{report_date.month:02d} 전체 타겟 매출 (원)",
-        min_value=0,
-        value=0,
-        step=1_000_000,
-        format="%d",
-    )
-
 st.divider()
 
 run_btn = st.button(
     "🚀 리포트 생성",
     type="primary",
-    disabled=(offline_file is None or not output_options),
+    disabled=(not offline_ready or not output_options),
     use_container_width=True,
 )
 
-if offline_file is None:
-    st.info("오프라인 거래 파일을 업로드하면 리포트 생성이 활성화됩니다.")
+if not uploaded_files:
+    st.info("오프라인 거래 파일을 최소 1개 업로드하면 리포트 생성이 활성화됩니다.")
+elif not offline_dfs and not unrecognized:
+    st.info("오프라인 거래 파일이 없습니다. 최소 1개 필요합니다(온라인은 선택).")
 
-if run_btn and offline_file is not None:
+if run_btn and offline_ready:
+    offline_combined = pd.concat(offline_dfs, ignore_index=True)
     offline_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    offline_tmp.write(offline_file.read())
-    offline_tmp.flush()
+    offline_combined.to_excel(offline_tmp.name, index=False)
 
     online_tmp_path = ""
-    if online_file is not None:
+    if online_dfs:
+        online_combined = pd.concat(online_dfs, ignore_index=True)
         online_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        online_tmp.write(online_file.read())
-        online_tmp.flush()
+        online_combined.to_excel(online_tmp.name, index=False)
         online_tmp_path = online_tmp.name
 
     recipients = [
@@ -111,7 +137,6 @@ if run_btn and offline_file is not None:
         "output_options": output_options,
         "recipient_emails": recipients,
         "report_date": report_date.strftime("%Y%m%d"),
-        "monthly_target_override": monthly_target_input,
         "errors": [],
     }
 
