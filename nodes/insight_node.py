@@ -324,60 +324,64 @@ def insight_node(state: dict) -> dict:
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         logger.warning("OPENAI_API_KEY 미설정, insight_node 스킵")
-        return {**state, "insights": insights, "errors": errors}
-
-    try:
-        from langchain_openai import ChatOpenAI
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        context = _build_insight_context(state)
-        report_date = state.get("report_date", "")
-        rd = (f"{report_date[:4]}-{report_date[4:6]}-{report_date[6:8]}"
-              if len(report_date) >= 8 else report_date)
-
-        user_prompt = (
-            f"[분석 기준일: {rd}]\n\n"
-            f"아래 데이터를 바탕으로 비즈니스 인사이트를 도출하세요.\n"
-            f"각 수치가 '많은지 적은지'는 비교 기준값(7일 평균, 30일 평균, 월 목표)을 "
-            f"반드시 참조하여 판단하세요:\n\n"
-            f"{context}"
+        errors.append(
+            "AI 인사이트를 생성하지 못했습니다 (OPENAI_API_KEY 미설정) — "
+            "rule 기반 판정만 반영됨"
         )
+    else:
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage, SystemMessage
 
-        company_profile = _load_company_profile()
-        if company_profile:
-            system_prompt = (
-                "## 기업/도메인 특성 (판단 시 반드시 참조)\n"
-                f"{company_profile}\n\n"
-                "---\n\n"
-                + _SYSTEM_PROMPT
+            context = _build_insight_context(state)
+            report_date = state.get("report_date", "")
+            rd = (f"{report_date[:4]}-{report_date[4:6]}-{report_date[6:8]}"
+                  if len(report_date) >= 8 else report_date)
+
+            user_prompt = (
+                f"[분석 기준일: {rd}]\n\n"
+                f"아래 데이터를 바탕으로 비즈니스 인사이트를 도출하세요.\n"
+                f"각 수치가 '많은지 적은지'는 비교 기준값(7일 평균, 30일 평균, 월 목표)을 "
+                f"반드시 참조하여 판단하세요:\n\n"
+                f"{context}"
             )
-        else:
-            system_prompt = _SYSTEM_PROMPT
 
-        llm = ChatOpenAI(
-            model=LLM_MODEL,
-            max_tokens=LLM_MAX_TOKENS,
-            api_key=api_key,
-            temperature=0,
-            model_kwargs={"seed": 42},
-        )
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ])
-        raw = (response.content.strip()
-               .removeprefix("```json")
-               .removesuffix("```")
-               .strip())
-        raw = re.sub(r',\s*([}\]])', r'\1', raw)
-        insights = json.loads(raw)
-        insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
-    except Exception as e:
-        logger.warning(f"insight_node 실패: {e}")
-        errors.append(f"insight_node 실패: {e}")
+            company_profile = _load_company_profile()
+            if company_profile:
+                system_prompt = (
+                    "## 기업/도메인 특성 (판단 시 반드시 참조)\n"
+                    f"{company_profile}\n\n"
+                    "---\n\n"
+                    + _SYSTEM_PROMPT
+                )
+            else:
+                system_prompt = _SYSTEM_PROMPT
 
-    # LLM 호출/파싱이 통째로 실패해도(네트워크 오류 등) 완전성 게이트는
-    # rule 데이터만으로 동작하므로 반드시 거쳐야 한다 — try 블록 밖에서 무조건 실행.
+            llm = ChatOpenAI(
+                model=LLM_MODEL,
+                max_tokens=LLM_MAX_TOKENS,
+                api_key=api_key,
+                temperature=0,
+                model_kwargs={"seed": 42},
+            )
+            response = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ])
+            raw = (response.content.strip()
+                   .removeprefix("```json")
+                   .removesuffix("```")
+                   .strip())
+            raw = re.sub(r',\s*([}\]])', r'\1', raw)
+            insights = json.loads(raw)
+            insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
+        except Exception as e:
+            logger.warning(f"insight_node 실패: {e}")
+            errors.append(f"insight_node 실패: {e}")
+
+    # LLM 호출/파싱이 통째로 실패해도(API키 미설정/네트워크 오류 등) 완전성
+    # 게이트는 rule 데이터만으로 동작하므로 반드시 거쳐야 한다 — if/else
+    # 양쪽 분기 모두 조기 return 없이 여기로 합류해 무조건 실행된다.
     if not isinstance(insights.get("top_issues"), list):
         insights["top_issues"] = []
     insights = _enforce_completeness(insights, state)

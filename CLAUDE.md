@@ -63,15 +63,13 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
 - 2026-07 세션: 체계적 엣지케이스 감사 완료(Decision 32) — 코드 수정 없음.
 
-## 다음 과제 (2026-07 기준, 아래 3개는 우선순위 순 - Decision 32 감사에서 확정된 버그, 전부 미수정)
-1. **sql_guard 화이트리스트 정규식 우회 수정** — `ALLOWED_TABLES` 검사가
-   큰따옴표/대괄호/백틱으로 감싼 테이블명을 못 잡음. 비허용 테이블
-   product_master(원가 컬럼 포함) 실제 조회 성공까지 확인된 보안 문제 —
-   이번 감사 최대 발견. nodes/qa_nodes.py의 `sql_guard()` 참조.
-2. **완전성게이트 API키 부재 시 우회 수정** — nodes/insight_node.py:325-327
-   조기 return이 try/except/완전성게이트(383)를 전부 건너뜀. Decision 24가
-   고친 "호출 도중 예외" 경로와는 별개 지점.
-3. **채팅 QA 빈 데이터 가드 보강 (최후순위, 채팅 기능 한정)** — `generate_answer`의
+## 다음 과제 (2026-07 기준, Decision 32 감사에서 확정된 버그 3건)
+1. ~~sql_guard 화이트리스트 정규식 우회~~ — **수정완료(ea6e95d)**. 인용부호
+   정규화 후 탐지(`sql_detect`)로 patch. tests/test_sql_guard.py 회귀 확인.
+2. ~~완전성게이트 API키 부재 시 우회~~ — **수정완료**. if/else 전환으로
+   조기 return 제거, 완전성게이트 항상 실행. tests/test_insight_node_completeness.py
+   + E2E 2건(API키 유/무) 검증 완료, 커밋 대기 중.
+3. **채팅 QA 빈 데이터 가드 보강 (남은 마지막 1건, 채팅 기능 한정)** — `generate_answer`의
    `if not rows` 가드가 SUM()/COUNT() 집계 결과인 `[{"col": None}]`(행 1개,
    빈 리스트 아님)를 못 잡음. nodes/qa_nodes.py 참조.
 
@@ -96,10 +94,15 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: sql_guard 화이트리스트 우회 수정 (Decision 32 발견 버그 1번, 다음과제 1순위)
-- 만질 파일: nodes/qa_nodes.py
-- 완료 기준: 이전 조사에서 우회 성공했던 케이스(큰따옴표/대괄호/백틱으로
-  감싼 sqlite_master, product_master 조회) 전부 차단 + 기존 정상 케이스
-  (허용 테이블 평범한 SELECT) 안 막힘. 세미콜론 스태킹(sqlite3 execute()
-  "한 문장만" 룰로 이미 별도 방어됨)은 이번 세션 범위 아님, 손 안 댐.
-  다음과제 2번(완전성게이트)/3번(채팅가드)은 이번 세션 범위 아님.
+- 트랙: 완전성게이트 API키우회 수정 (Decision 32 발견 버그 2번, 다음과제 2순위.
+  1번 sql_guard는 전 세션에 수정완료·커밋됨(ea6e95d))
+- 만질 파일: nodes/insight_node.py
+- 완료: 324-380번 조기 return을 if/else로 전환(완전성게이트가 API키
+  유무와 무관하게 항상 실행). tests/test_insight_node_completeness.py
+  신규(API키없음/호출중예외/정상 3케이스 pytest 통과). E2E 검증 2건 —
+  report_date=20250630(anchor_set: 반품이슈 high)로 실제 graph.invoke():
+  (1) API키 미설정 상태 — top_issues에 반품이슈 fallback 정상 삽입,
+  errors에 안내문구 정상 포함, db_skipped_count로 DB 무손상 확인.
+  (2) API키 설정 상태(재들여쓰기된 else분기 실행 경로) — top_issues/
+  actions/commentary 전부 정상 생성, 구조 이상 없음. 91일 전체 eval은
+  판정로직이 아닌 흐름제어 변경이라 미실행(eval실행규율 기준).
