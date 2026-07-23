@@ -58,27 +58,31 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 버전: v1.7 + 반품 사유내역 서술레이어(방식A) + anchor_set 9항목
 - Eval 기준: 92.3~92.7% 스프레드(90.1~95.6%). anchor override 5개 날짜
   (0415/0426/0518/0606/0630) PASS 유지 확인됨.
-- HEAD: Decision 32(파이프라인 12개 엣지케이스 사전설계 감사, 버그 3건
-  확정 — 전부 수정완료)까지 반영, 다수 unpushed.
+- HEAD: Decision 33(매장 채널구분 하드코딩 발견, 업로드 UI 유연화 설계결정
+  — 코드 수정 없음)까지 반영, 다수 unpushed.
 - 미커밋 WIP: db.py / pages/1_upload.py - 세션 무관 별개 변경, 방치 중.
 - 2026-07 세션: Decision 32 버그 3건(sql_guard 우회 / 완전성게이트 API키우회
-  / 채팅QA SUM집계 None행 가드) 전부 수정 완료. 아래 "다음 과제" 블록 해소됨.
+  / 채팅QA SUM집계 None행 가드) 전부 수정 완료. 이어서 매장 매핑 확인 중
+  매장이 동적으로 늘어난다는 전제(Store3 여주 곧 추가)가 처음 확인돼
+  Decision 33으로 채널구분 하드코딩 3곳 발견, 근본해결 3단계 설계.
 
-## 다음 과제 (2026-07, Decision 32 감사에서 확정된 버그 3건 — 전부 완료)
-1. ~~sql_guard 화이트리스트 정규식 우회~~ — **수정완료(ea6e95d)**. 인용부호
-   정규화 후 탐지(`sql_detect`)로 patch. tests/test_sql_guard.py 회귀 확인.
-2. ~~완전성게이트 API키 부재 시 우회~~ — **수정완료**. if/else 전환으로
-   조기 return 제거, 완전성게이트 항상 실행. tests/test_insight_node_completeness.py
-   + E2E 2건(API키 유/무) 검증 완료, 커밋 대기 중.
-3. ~~채팅 QA SUM집계 None행 가드~~ — **수정완료**. `generate_answer`에
-   행 1개+any None 체크 추가(SUM/AVG 매칭 0건 시 값 None 행 1개 반환,
-   COUNT는 0이라 None 아님 — daily_kpi/daily_product는 insert 시 항상
-   숫자 삽입이라 실제 매칭행엔 None 없음, any-None이 안전한 시그널).
-   tests/test_qa_null_aggregate.py 신규(4케이스: 매칭없음/매칭있음/기존
-   빈리스트회귀/SUM+COUNT(*) 병행) pytest 통과, LLM mock으로 호출횟수까지
-   검증. 커밋 대기 중.
+## 다음 과제 (2026-07, Decision 33 — channel 필드 도입 및 업로드 UI 유연화)
+1. channel 필드를 DB 스키마에 추가해 업로드 단계에서 이미 정해지는
+   오프라인/온라인 값을 저장.
+2. report_nodes.py `OFFLINE_PLATFORMS` / pattern_nodes.py SQL IN절 /
+   insight_node.py `_CHANNEL_NAMES` 세 곳 전부 매장이름 매칭 대신
+   channel 필드 참조로 교체.
+3. pages/1_upload.py를 오프라인/온라인 고정 2슬롯에서 다중파일 업로드 +
+   컬럼 스키마 기반 채널 자동판별로 재설계.
+   (참고: 매장 색상 매핑 최종확정 — 서울=핑크/부산=블루/제주=오렌지/
+   여주=옐로우, HCC=서울·Store1=부산·Store2=제주·Store3=여주. 색상은
+   매장이름이 아니라 판매처명에 포함된 지역 키워드로 매칭할 것.)
 
 ## 다음 과제 (기존, 우선순위 아님 - 세션 시작 시 확정)
+- config.py MONTHLY_TARGETS 매장이름 키 딕셔너리 확장성 문제(Decision 33
+  발견) - 신규 매장이 에러/라벨 없이 매장별 달성률에서 누락되고 전사
+  목표 총액도 매장 수 증가에 자동대응 안 됨. channel 필드 작업과는
+  별개 트랙, 재검토 필요.
 - anchor_set 2라운드 라벨링 후보: 0504, 0510, 0611
 - severity 채점 확장 재검토: category는 6/6 rule과 일치, severity는 2/6 갈림
   (0518, 0606) - 지금 eval이 severity 미채점. 표본 더 쌓은 뒤 재검토.
@@ -99,18 +103,11 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: 채팅QA SUM집계 None행 가드 (Decision 32 발견 버그 3번, 다음과제
-  마지막 순위. 1번 sql_guard·2번 완전성게이트는 전 세션에 수정완료)
-- 만질 파일: nodes/qa_nodes.py
-- 완료: generate_answer()의 `if not rows` 가드 뒤에 `len(rows)==1 and
-  any(v is None ...)` 체크 추가 — SUM/AVG 집계 매칭 0건 시 None값 행
-  1개를 안내메시지로 조기 처리, LLM 호출 안 넘어감. 채택 전 db.py insert
-  경로(db_nodes.py) 감사 — daily_kpi/daily_product 모든 숫자컬럼은 insert
-  시 항상 실값(0 포함) 삽입, None 없음 확인 → any-None이 오탐 없는 안전한
-  시그널로 판단. tests/test_qa_null_aggregate.py 신규 4케이스(매칭없음/
-  매칭있음/기존빈리스트회귀/SUM+COUNT(*)병행) 전부 pytest 통과, LLM은
-  monkeypatch로 ChatOpenAI 자체를 fake 클래스로 치환해 호출횟수까지 검증
-  (실네트워크 요청 없음). 기존 tests/test_qa_sql.py, test_sql_guard.py,
-  test_insight_node_completeness.py 포함 28개 전체 재실행 — 회귀 없음.
-  91일 eval은 채팅QA 로직이라 무관(eval실행규율 기준), 미실행.
-  Decision 32 버그 3건 전부 완료 — 다음 세션은 새 트랙 필요.
+- 트랙: channel 필드 도입 및 업로드 UI 유연화 (Decision 33에서 설계결정,
+  이번 세션은 조사·설계만 — 구현은 미착수)
+- 만질 파일: nodes/kpi_nodes.py, nodes/report_nodes.py, nodes/pattern_nodes.py,
+  nodes/insight_node.py, pages/1_upload.py
+- 완료기준: 위 3단계(① channel 필드 DB 저장 ② 3곳 하드코딩을 channel
+  필드 참조로 교체 ③ 업로드 UI 다중파일+컬럼 자동판별 재설계) 전부
+  끝나고, 가상의 4번째 매장 데이터로 테스트해 채널 오분류가 재현되지
+  않는 것 확인까지.
