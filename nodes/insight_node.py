@@ -98,20 +98,24 @@ def _build_insight_context(state: dict) -> str:
 _MONTHLY_CUMULATIVE_PATTERN = re.compile(
     r"(월\s*(누적|달성률)|누적\s*달성률)"
 )
-_CHANNEL_NAMES = ["HCC", "메이크샵", "네이버", "카카오", "Store 1", "Store 2"]
 
 
-def _is_monthly_cumulative_issue(top_issue: str) -> bool:
+def _is_monthly_cumulative_issue(top_issue: str, channel_names: list[str]) -> bool:
     """
     top_issue가 '월 누적 달성률 + 특정 채널명' 패턴인지 판정한다.
     이 패턴은 트랙A(오늘 즉각 대응) 자격이 없다 — 매일 거의 안 바뀌는
     월 누적 수치이기 때문이다. 프롬프트 지시로 반복 실패했으므로
     rule-based로 강제 격리한다.
+
+    channel_names는 해당 리포트일 kpi_summary.by_platform의 실제 판매처명
+    목록(context_builder.py가 LLM에 그대로 넘기는 값과 동일) — 신규 매장이
+    추가돼도 하드코딩 목록을 갱신할 필요 없이 그날 존재하는 매장/채널만
+    자동으로 잡힌다(Decision 33).
     """
     if not top_issue:
         return False
     has_monthly_keyword = bool(_MONTHLY_CUMULATIVE_PATTERN.search(top_issue))
-    has_channel_name = any(ch in top_issue for ch in _CHANNEL_NAMES)
+    has_channel_name = any(ch in top_issue for ch in channel_names if ch)
     return has_monthly_keyword and has_channel_name
 
 
@@ -168,7 +172,7 @@ def _validate_category_by_rule(item: dict, patterns: dict) -> bool:
     return True
 
 
-def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
+def _enforce_track_a_isolation(insights: dict, patterns: dict, channel_names: list[str]) -> dict:
     """
     top_issues의 각 항목을 검사한다:
     1) '월 누적+채널명' 패턴이면 risk_items로 격리 (보조 안전장치)
@@ -188,7 +192,7 @@ def _enforce_track_a_isolation(insights: dict, patterns: dict) -> dict:
             continue
         issue_text = item.get("issue", "")
         # 1) 월 누적+채널명 패턴이면 격리 (보조 안전장치)
-        if _is_monthly_cumulative_issue(issue_text):
+        if _is_monthly_cumulative_issue(issue_text, channel_names):
             logger.info(f"트랙A 격리: '{issue_text[:40]}...' → risk_items")
             risk_items.insert(0, issue_text)
             continue
@@ -374,7 +378,11 @@ def insight_node(state: dict) -> dict:
                    .strip())
             raw = re.sub(r',\s*([}\]])', r'\1', raw)
             insights = json.loads(raw)
-            insights = _enforce_track_a_isolation(insights, state.get("patterns", {}))
+            channel_names = [
+                rec.get("platform", "")
+                for rec in state.get("kpi_summary", {}).get("by_platform", [])
+            ]
+            insights = _enforce_track_a_isolation(insights, state.get("patterns", {}), channel_names)
         except Exception as e:
             logger.warning(f"insight_node 실패: {e}")
             errors.append(f"insight_node 실패: {e}")

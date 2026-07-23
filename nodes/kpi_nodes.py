@@ -4,7 +4,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명") -> list[dict]:
+def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명", channel: str = "") -> list[dict]:
     if df.empty:
         return []
 
@@ -24,6 +24,7 @@ def _compute_kpi_for(df: pd.DataFrame, platform_col: str = "판매처명") -> li
 
         records.append({
             "platform": str(platform),
+            "channel": channel,
             "zor": zor,
             "zre": zre,
             "net_receipt": net_receipt,
@@ -165,9 +166,9 @@ def kpi_compute_node(state: dict) -> dict:
         # ── 기존: by_platform ────────────────────────────
         all_records = []
         if offline is not None and not offline.empty:
-            all_records.extend(_compute_kpi_for(offline))
+            all_records.extend(_compute_kpi_for(offline, channel="오프라인"))
         if online is not None and not online.empty:
-            all_records.extend(_compute_kpi_for(online))
+            all_records.extend(_compute_kpi_for(online, channel="온라인"))
 
         merged: dict[str, dict] = {}
         for rec in all_records:

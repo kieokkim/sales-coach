@@ -35,7 +35,7 @@ def db_save_node(state: dict) -> dict:
                     """,
                     (
                         report_date,
-                        "",
+                        rec.get("channel", ""),
                         rec.get("platform", ""),
                         rec.get("zor", 0),
                         rec.get("zre", 0),

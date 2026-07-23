@@ -39,9 +39,6 @@ target_summary = state.get("target_summary", {})
 anomalies = state.get("anomalies", [])
 db_skipped_count = state.get("db_skipped_count", 0)
 
-OFFLINE_PLATFORMS = {"HCC", "HCC Store 1", "HCC Store 2"}
-
-
 def _prepare_time_series(offline_df, online_df):
     dfs = []
     if offline_df is not None and not getattr(offline_df, "empty", True):
@@ -60,10 +57,6 @@ def _prepare_time_series(offline_df, online_df):
     combined["주"] = combined["판매일자"].dt.to_period("W").dt.start_time
     combined["월"] = combined["판매일자"].dt.to_period("M").dt.start_time
     return combined
-
-
-def get_channel(platform: str) -> str:
-    return "오프라인" if platform in OFFLINE_PLATFORMS else "온라인"
 
 
 # ── 헤더 ─────────────────────────────────────────────────────────────
@@ -156,7 +149,7 @@ def _build_bar_chart_html(records: list) -> str:
         bh = max(ph * pct, 2)
         x = ml + i * bar_group + (bar_group - bar_w) / 2
         y = mt + ph - bh
-        color = "#3b82f6" if rec["platform"] in OFFLINE_PLATFORMS else "#10b981"
+        color = "#3b82f6" if rec["channel"] == "오프라인" else "#10b981"
         val_man = rec["total_sales"] // 10000
         label = rec["platform"]
 
@@ -266,7 +259,7 @@ st.markdown('<div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bot
 if by_platform:
     rows_html = ""
     for i, rec in enumerate(by_platform):
-        ch = get_channel(rec["platform"])
+        ch = rec["channel"]
         badge_bg = "#1e40af" if ch == "오프라인" else "#065f46"
         badge_color = "#bfdbfe" if ch == "오프라인" else "#a7f3d0"
         row_bg = "#1a1a2e" if i % 2 == 0 else "#16162a"

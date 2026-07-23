@@ -11,12 +11,6 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-OFFLINE_PLATFORMS = {"HCC", "HCC Store 1", "HCC Store 2"}
-
-
-def _get_channel(platform: str) -> str:
-    return "오프라인" if platform in OFFLINE_PLATFORMS else "온라인"
-
 
 def build_html_node(state: dict) -> dict:
     errors = list(state.get("errors", []))
@@ -69,7 +63,7 @@ def build_excel_node(state: dict) -> dict:
 
         kpi_records = state.get("kpi_summary", {}).get("by_platform", [])
         for row, rec in enumerate(kpi_records, 2):
-            ws1.cell(row=row, column=1, value=_get_channel(rec["platform"]))
+            ws1.cell(row=row, column=1, value=rec["channel"])
             ws1.cell(row=row, column=2, value=rec["platform"])
             ws1.cell(row=row, column=3, value=rec["zor"])
             ws1.cell(row=row, column=4, value=rec["zre"])

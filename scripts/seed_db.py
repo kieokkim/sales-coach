@@ -96,9 +96,9 @@ def seed():
         # 플랫폼별 KPI
         all_kpi: list = []
         if not off.empty:
-            all_kpi.extend(_compute_kpi_for(off))
+            all_kpi.extend(_compute_kpi_for(off, channel="오프라인"))
         if not on.empty:
-            all_kpi.extend(_compute_kpi_for(on))
+            all_kpi.extend(_compute_kpi_for(on, channel="온라인"))
 
         # 제품별 집계
         dfs = [df for df in [off, on] if not df.empty]
@@ -116,7 +116,7 @@ def seed():
                             total_point, total_fee, created_at)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
-                            date_db, "", rec["platform"],
+                            date_db, rec["channel"], rec["platform"],
                             rec["zor"], rec["zre"], rec["net_receipt"],
                             0.0, 0.0, float(rec["total_sales"]),
                             float(rec["total_point"]), float(rec["total_fee"]),
