@@ -82,6 +82,21 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
   (기존 스프레드 90.1~95.6% 이내) — anchor override 5개 날짜 개별
   재실행 전부 PASS, 91일 배치에서 0426 1건 FAIL했던 건 단독 재실행 시
   PASS로 확인돼 LLM run-to-run 비결정성 노이즈로 판정(코드 회귀 아님).
+- **운영 모드 전환(2026-07-24): 취업 우선 라운드.** 판단 로직 심화보다
+  포트폴리오/실사용 증거 확보가 우선. 아래 최상단 다음과제 참조.
+
+## 다음 과제 (2026-07-24, 취업 우선 전환 — 최우선순위)
+1. **백필 스크립트 결과 확인** — scripts/backfill_channel.py 실행결과
+   (오프라인 273/온라인 275) 최종 사실확인 및 문서화.
+2. **헬리녹스 14일치 데이터 요청** — 외부 실사용 검증의 다음 관문.
+3. (2순위) **목업 기반 프론트 실구현** — 지금까지 판단 로직 위주였던
+   것을 시각적으로 보여줄 수 있는 화면으로 전환.
+
+**이번 라운드 보류(코드 변경 없음, 착수하지 않음):**
+- anchor_set 확장 라벨링(2라운드: 0504/0510/0611)
+- 만성신호/시간축 트랙
+- 레포정리 Task1~4
+- 승인게이트 action_draft 실행레이어
 
 ## 다음 과제 (2026-07, Decision 33 — channel 필드 도입 및 업로드 UI 유연화, 전부 완료)
 1. ~~channel 필드를 DB 스키마에 추가~~ — **완료**. 스키마엔 이미 있었고
@@ -103,7 +118,7 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
   발견) - 신규 매장이 에러/라벨 없이 매장별 달성률에서 누락되고 전사
   목표 총액도 매장 수 증가에 자동대응 안 됨. channel 필드 작업과는
   별개 트랙, 재검토 필요.
-- anchor_set 2라운드 라벨링 후보: 0504, 0510, 0611
+- anchor_set 2라운드 라벨링 후보: 0504, 0510, 0611 (보류 — 취업우선 전환, 위 참조)
 - severity 채점 확장 재검토: category는 6/6 rule과 일치, severity는 2/6 갈림
   (0518, 0606) - 지금 eval이 severity 미채점. 표본 더 쌓은 뒤 재검토.
 - 고유거래건수(고객참조번호) 반품탐지 반영 검토 - 현재 qty 기준이라
@@ -112,8 +127,9 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - 프로모션 대상(scope) 필드 부재 - 실사용 연동 시 재검토.
 - 외부 라벨러 확보 - 헬리녹스 실사용 제안과 연결, 3단계 완주 남은 관문.
 - 만성신호/시간축 트랙 - 방향은 승격됐으나 착수조건(3도메인 공통구조+실사용
-  검증) 미충족, 지금 미착수.
-- 레포정리 Task1~4 - 위생작업, 최후순위(Task0 분석 완료).
+  검증) 미충족, 지금 미착수 (보류 — 취업우선 전환, 위 참조).
+- 레포정리 Task1~4 - 위생작업, 최후순위(Task0 분석 완료) (보류 — 취업우선
+  전환, 위 참조).
 
 ## 참고 파일
 - eval/eval_runner.py, eval/ground_truth.py, eval/anchor_set.json
@@ -123,15 +139,11 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: channel 필드 도입 및 업로드 UI 유연화 (Decision 33 구현) — 완료.
-  다음 세션은 새 트랙 필요, 아래 "다음 과제(기존)" 목록에서 선택.
-- 만질 파일이었음: nodes/kpi_nodes.py, nodes/db_nodes.py,
-  nodes/report_nodes.py, nodes/pattern_nodes.py, nodes/insight_node.py,
-  pages/1_upload.py, pages/3_report.py(세션 중 추가발견, 사용자 승인
-  후 포함), scripts/seed_db.py, scripts/backfill_channel.py(신규),
-  tests/test_channel_field.py(신규)
-- 완료: 3단계 전부 끝, 4번째 하드코딩(pages/3_report.py)도 발견해
-  같이 수정, 가상의 신규 매장(HCC Store 3)으로 테스트해 channel 필드가
-  report_nodes/pattern_nodes/insight_node 3곳 전부에서 매장이름 목록
-  없이도 정상 "오프라인"으로 분류됨을 tests/test_channel_field.py로
-  확인. 91일 eval 재실행, anchor override 5곳 개별 PASS, 회귀 없음.
+- 트랙: 취업 우선 전환 — 문서/사실확인만, 코드 변경 없음.
+- 만질 파일: DECISION_LOG.md(Tier2 D24 색인 성격표기 + D19/D25/D24 본문에
+  외부 설명용 요약 블록 추가), CLAUDE.md(현재상태/다음과제 갱신).
+- 완료: Tier2 D24 색인에 "프로덕션 인시던트 대응 사례" 성격표기 추가,
+  D19 본문에 외부 설명용 요약 추가. D25/D24 본문 요약은 사용자가 준
+  내용 일부가 누락/손상돼 보류 — 원문 재확인 후 이어서 진행.
+- 참고: 이력서용 최종 목록은 사용자가 별도로 정리 — 이번 세션은 사실확인과
+  레포 기술요소 서베이만 보고.
