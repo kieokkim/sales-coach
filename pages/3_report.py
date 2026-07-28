@@ -1,3 +1,4 @@
+import html
 from calendar import monthrange
 from pathlib import Path
 
@@ -5,11 +6,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from dotenv import load_dotenv
 
+from config import LLM_MODEL
 from utils.styles import inject_global_css, render_sidebar_brand
+from utils.ui_style import get_store_color, get_theme
 
 load_dotenv()
 
@@ -36,8 +37,23 @@ kpi_total = state.get("kpi_total", {})
 kpi_cumulative = state.get("kpi_cumulative", {})
 kpi_summary = state.get("kpi_summary", {})
 target_summary = state.get("target_summary", {})
+patterns = state.get("patterns", {})
+insights = state.get("insights", {})
+actions = state.get("actions", [])
 anomalies = state.get("anomalies", [])
 db_skipped_count = state.get("db_skipped_count", 0)
+by_platform = kpi_summary.get("by_platform", [])
+
+
+def esc(v) -> str:
+    """LLM 산출 텍스트 전용 이스케이프. rule 계산값/수치엔 안 씀."""
+    return html.escape(str(v)) if v else ""
+
+
+if "report_theme" not in st.session_state:
+    st.session_state["report_theme"] = "dark"
+T = get_theme(st.session_state["report_theme"])
+
 
 def _prepare_time_series(offline_df, online_df):
     dfs = []
@@ -59,22 +75,82 @@ def _prepare_time_series(offline_df, online_df):
     return combined
 
 
-# ── 헤더 ─────────────────────────────────────────────────────────────
-col_h, col_btn = st.columns([6, 1])
-with col_h:
+# ── 페이지 스코프 CSS (탭 언더라인 + expander 스타일) ──────────────────
+# 사이드바/탭/expander는 Streamlit 네이티브 크롬 — 테마 토글 범위 밖(항상 다크).
+st.markdown("""
+<style>
+.stTabs [data-baseweb="tab"] {font-weight:600; font-size:14px;}
+.stTabs [aria-selected="true"] {color:#e2e8f0 !important; border-bottom-color:#2E9BE6 !important;}
+[data-testid="stExpander"] {border-radius:8px; border-color:#333333;}
+[data-testid="stExpander"] summary {font-weight:600; font-size:13px;}
+</style>
+""", unsafe_allow_html=True)
+
+# ── 마스트헤드 ──────────────────────────────────────────────────────
+col_brand, col_date, col_theme, col_dl1, col_dl2, col_new = st.columns(
+    [3, 1.4, 0.6, 1.2, 1.2, 1.4]
+)
+
+with col_brand:
     st.markdown(f"""
-    <div style="display:flex; align-items:center; margin-bottom:20px;">
+    <div style="display:flex; align-items:center; gap:10px; height:100%;">
+        <div style="width:34px;height:34px;border-radius:8px;background:{T['accent_soft']};
+                    color:{T['accent']};display:flex;align-items:center;justify-content:center;
+                    font-weight:700;font-family:sans-serif;">SC</div>
         <div>
-            <div style="font-size:22px; font-weight:700; color:#e2e8f0;">판매일보</div>
-            <div style="font-size:13px; color:#718096; margin-top:3px;">{report_date_display} 기준 · AI 자동 생성</div>
+            <div style="font-size:20px; font-weight:700; color:{T['text_primary']};">판매일보</div>
+            <div style="font-size:12px; color:{T['text_tertiary']}; margin-top:1px;">AI 매출 분석 에이전트</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-with col_btn:
+
+with col_date:
+    st.markdown(f"""
+    <div style="margin-top:8px;font-size:12px;color:{T['text_secondary']};background:{T['surface']};
+                border:1px solid {T['line']};border-radius:6px;padding:8px 12px;
+                font-family:monospace;text-align:center;">{report_date_display} 기준</div>
+    """, unsafe_allow_html=True)
+
+with col_theme:
+    theme_icon = "🌙" if st.session_state["report_theme"] == "dark" else "☀️"
+    if st.button(theme_icon, key="theme_toggle", help="라이트/다크 전환 (리포트 본문만)", use_container_width=True):
+        st.session_state["report_theme"] = "light" if st.session_state["report_theme"] == "dark" else "dark"
+        st.rerun()
+
+html_report = state.get("html_report", "")
+excel_path = state.get("excel_path", "")
+
+with col_dl1:
+    if "html" in output_options and html_report:
+        st.download_button(
+            label="📧 HTML",
+            data=html_report.encode("utf-8"),
+            file_name=f"sales_report_{report_date_raw}.html",
+            mime="text/html",
+            use_container_width=True,
+        )
+
+with col_dl2:
+    if "excel" in output_options and excel_path and Path(excel_path).exists():
+        with open(excel_path, "rb") as f:
+            st.download_button(
+                label="📥 Excel",
+                data=f.read(),
+                file_name=f"sales_report_{report_date_raw}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+with col_new:
     if st.button("🔄 새 리포트", use_container_width=True):
         del st.session_state["result_state"]
         del st.session_state["run_config"]
         st.switch_page("pages/1_upload.py")
+
+if state.get("email_sent"):
+    st.caption("✅ 이메일이 성공적으로 발송되었습니다.")
+
+st.markdown(f"<div style='border-bottom:1px solid {T['line']}; margin:6px 0 18px;'></div>", unsafe_allow_html=True)
 
 errors = state.get("errors", [])
 if errors:
@@ -91,294 +167,342 @@ if state.get("no_data_for_date"):
     st.stop()
 
 
-# ── KPI 카드 4개 ──────────────────────────────────────────────────────
-def render_kpi_cards(net_receipt: int, total_sales: int, total_point: int, anomaly_count: int):
-    anomaly_color = "#f59e0b" if anomaly_count > 0 else "#10b981"
-    anomaly_label = "확인 필요" if anomaly_count > 0 else "정상"
-    st.markdown(f"""
-    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px;">
-        <div style="background:#1e1e2e; border-radius:12px; padding:18px 20px; border-left:3px solid #3b82f6;">
-            <div style="font-size:11px; color:#718096; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:8px;">순영수증</div>
-            <div style="font-size:28px; font-weight:700; color:#e2e8f0;">{net_receipt:,}건</div>
-            <div style="font-size:11px; color:#4a5568; margin-top:4px;">ZOR - ZRE</div>
-        </div>
-        <div style="background:#1e1e2e; border-radius:12px; padding:18px 20px; border-left:3px solid #10b981;">
-            <div style="font-size:11px; color:#718096; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:8px;">총매출</div>
-            <div style="font-size:28px; font-weight:700; color:#e2e8f0;">{total_sales:,.0f}원</div>
-            <div style="font-size:11px; color:#4a5568; margin-top:4px;">HCC + 헬리녹스</div>
-        </div>
-        <div style="background:#1e1e2e; border-radius:12px; padding:18px 20px; border-left:3px solid #8b5cf6;">
-            <div style="font-size:11px; color:#718096; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:8px;">총포인트</div>
-            <div style="font-size:28px; font-weight:700; color:#e2e8f0;">{total_point:,.0f}P</div>
-            <div style="font-size:11px; color:#4a5568; margin-top:4px;">전 플랫폼 합산</div>
-        </div>
-        <div style="background:#1e1e2e; border-radius:12px; padding:18px 20px; border-left:3px solid {anomaly_color};">
-            <div style="font-size:11px; color:#718096; letter-spacing:0.8px; text-transform:uppercase; margin-bottom:8px;">이상치</div>
-            <div style="font-size:28px; font-weight:700; color:{anomaly_color};">{anomaly_count}건</div>
-            <div style="font-size:11px; color:{anomaly_color}; margin-top:4px;">{anomaly_label}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-render_kpi_cards(
-    kpi_total.get("net_receipt", 0),
-    kpi_total.get("total_sales", 0),
-    kpi_total.get("total_point", 0),
-    len(anomalies),
-)
-
-
-# ── SVG 바 차트 ───────────────────────────────────────────────────────
-def _build_bar_chart_html(records: list) -> str:
-    if not records:
-        return '<html><body style="background:#16162a;margin:0;display:flex;align-items:center;justify-content:center;height:260px;"><p style="color:#718096;font-family:sans-serif;">데이터 없음</p></body></html>'
-
-    W, H = 580, 310
-    mt, mr, mb, ml = 20, 20, 90, 55
-    pw, ph = W - ml - mr, H - mt - mb
-
-    n = len(records)
-    bar_group = pw / n
-    bar_w = bar_group * 0.62
-    max_val = max(r["total_sales"] for r in records) or 1
-
-    bars = []
-    for i, rec in enumerate(records):
-        pct = rec["total_sales"] / max_val
-        bh = max(ph * pct, 2)
-        x = ml + i * bar_group + (bar_group - bar_w) / 2
-        y = mt + ph - bh
-        color = "#3b82f6" if rec["channel"] == "오프라인" else "#10b981"
-        val_man = rec["total_sales"] // 10000
-        label = rec["platform"]
-
-        bars.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="{color}" rx="4" opacity="0.9"/>')
-        if val_man > 0:
-            bars.append(f'<text x="{x+bar_w/2:.1f}" y="{y-6:.1f}" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">{val_man:,}만</text>')
-
-        cx_bar = x + bar_w / 2
-        label_y = H - mb + 14
-        bars.append(
-            f'<text x="{cx_bar:.1f}" y="{label_y:.1f}" text-anchor="end" '
-            f'transform="rotate(-35 {cx_bar:.1f} {label_y:.1f})" '
-            f'fill="#718096" font-size="10" font-family="sans-serif">{label}</text>'
-        )
-
-    y_lines = []
-    for i in range(5):
-        y_pos = mt + ph * i / 4
-        val = int(max_val * (4 - i) / 4 / 10000)
-        y_lines.append(f'<line x1="{ml}" y1="{y_pos:.1f}" x2="{W-mr}" y2="{y_pos:.1f}" stroke="#1e1e2e" stroke-width="1"/>')
-        y_lines.append(f'<text x="{ml-6}" y="{y_pos+4:.1f}" text-anchor="end" fill="#4a5568" font-size="10" font-family="sans-serif">{val:,}만</text>')
-
-    legend = (
-        f'<rect x="{W-mr-110}" y="{mt}" width="10" height="10" fill="#3b82f6" rx="2"/>'
-        f'<text x="{W-mr-96}" y="{mt+9}" fill="#718096" font-size="10" font-family="sans-serif">오프라인</text>'
-        f'<rect x="{W-mr-45}" y="{mt}" width="10" height="10" fill="#10b981" rx="2"/>'
-        f'<text x="{W-mr-31}" y="{mt+9}" fill="#718096" font-size="10" font-family="sans-serif">온라인</text>'
-    )
-
-    svg = (
-        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
-        f'style="width:100%;height:100%;">'
-        f'{"".join(y_lines)}'
-        f'{"".join(bars)}'
-        f'{legend}'
-        f'</svg>'
-    )
-    return f'<!DOCTYPE html><html><head><style>body{{margin:0;background:#16162a;overflow:hidden;}}</style></head><body>{svg}</body></html>'
-
-
-# ── SVG 게이지 ────────────────────────────────────────────────────────
-def _build_gauge_html(pct: float, total_actual: int, total_target: int, days_remaining: int, daily_required: int) -> str:
-    color = "#10b981" if pct >= 90 else ("#3b82f6" if pct >= 70 else "#f59e0b")
-    circumference = 251.2
-    dash_fill = f"{circumference * min(max(pct, 0), 100) / 100:.1f} {circumference}"
-
-    actual_man = total_actual // 10000
-    target_man = total_target // 10000
-    daily_man = daily_required // 10000
-
-    pct_text = f"{pct:.1f}%"
-    desc_text = f"{actual_man:,}만 / {target_man:,}만원"
-    bottom_text = f"남은 {days_remaining}일 · 일평균 {daily_man:,}만원 필요"
-
-    svg = f"""<svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:200px;display:block;margin:0 auto;">
-  <path d="M20,100 A80,80 0 0,1 180,100" fill="none" stroke="#2d3748" stroke-width="16" stroke-linecap="round"/>
-  <path d="M20,100 A80,80 0 0,1 180,100" fill="none" stroke="{color}" stroke-width="16" stroke-linecap="round"
-        stroke-dasharray="{dash_fill}"/>
-  <text x="100" y="90" text-anchor="middle" fill="{color}" font-size="24" font-weight="600" font-family="sans-serif">{pct_text}</text>
-  <text x="100" y="110" text-anchor="middle" fill="#718096" font-size="11" font-family="sans-serif">{desc_text}</text>
-</svg>"""
-
-    return (
-        f'<!DOCTYPE html><html><head><style>'
-        f'body{{margin:0;background:#0f0f1a;overflow:hidden;text-align:center;font-family:sans-serif;}}'
-        f'.bt{{font-size:12px;color:#718096;margin-top:4px;}}'
-        f'</style></head><body>'
-        f'{svg}'
-        f'<div class="bt">{bottom_text}</div>'
-        f'</body></html>'
-    )
-
-
-# ── 바 차트 + 게이지 ──────────────────────────────────────────────────
-by_platform = kpi_summary.get("by_platform", [])
-
-col_chart, col_gauge = st.columns([2, 1])
-
-with col_chart:
-    st.markdown('<div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bottom:8px;">플랫폼별 매출 (당일)</div>', unsafe_allow_html=True)
-    chart_html = _build_bar_chart_html(by_platform)
-    components.html(chart_html, height=328)
-
-with col_gauge:
-    st.markdown('<div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bottom:8px;">타겟 달성률</div>', unsafe_allow_html=True)
-    if target_summary and target_summary.get("total_target", 0) > 0:
-        gauge_html = _build_gauge_html(
-            pct=target_summary.get("total_achievement_pct", 0),
-            total_actual=target_summary.get("total_actual", 0),
-            total_target=target_summary.get("total_target", 0),
-            days_remaining=target_summary.get("days_remaining", 0),
-            daily_required=target_summary.get("daily_required", 0),
-        )
-        components.html(gauge_html, height=175)
-    else:
-        components.html(
-            '<!DOCTYPE html><html><head><style>body{margin:0;background:#0f0f1a;display:flex;align-items:center;justify-content:center;height:175px;}</style></head>'
-            '<body><div style="text-align:center;color:#4a5568;font-family:sans-serif;font-size:13px;">타겟 미설정<br><span style="font-size:11px;">아래 탭에서 입력하세요</span></div></body></html>',
-            height=175,
-        )
-
-st.divider()
-
-# ── 플랫폼 상세 테이블 ────────────────────────────────────────────────
-st.markdown('<div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bottom:10px;">플랫폼별 상세</div>', unsafe_allow_html=True)
-
-if by_platform:
-    rows_html = ""
-    for i, rec in enumerate(by_platform):
-        ch = rec["channel"]
-        badge_bg = "#1e40af" if ch == "오프라인" else "#065f46"
-        badge_color = "#bfdbfe" if ch == "오프라인" else "#a7f3d0"
-        row_bg = "#1a1a2e" if i % 2 == 0 else "#16162a"
-        rows_html += f"""
-        <tr style="background:{row_bg};">
-            <td style="padding:9px 12px;color:#e2e8f0;">{rec['platform']}</td>
-            <td style="padding:9px 12px;text-align:center;">
-                <span style="background:{badge_bg};color:{badge_color};padding:2px 8px;border-radius:4px;font-size:11px;">{ch}</span>
-            </td>
-            <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{rec['zor']:,}</td>
-            <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{rec['zre']:,}</td>
-            <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{rec['net_receipt']:,}</td>
-            <td style="padding:9px 12px;text-align:right;color:#e2e8f0;font-weight:500;">{rec['total_sales']:,}원</td>
-            <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{rec['total_point']:,}P</td>
-        </tr>"""
-
-    t = kpi_total
-    rows_html += f"""
-    <tr style="background:#1e3a5f;font-weight:700;">
-        <td style="padding:9px 12px;color:#e2e8f0;">합계</td>
-        <td></td>
-        <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{sum(r['zor'] for r in by_platform):,}</td>
-        <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{sum(r['zre'] for r in by_platform):,}</td>
-        <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{t.get('net_receipt',0):,}</td>
-        <td style="padding:9px 12px;text-align:right;color:#e2e8f0;">{t.get('total_sales',0):,}원</td>
-        <td style="padding:9px 12px;text-align:right;color:#94a3b8;">{t.get('total_point',0):,}P</td>
-    </tr>"""
-
-    st.markdown(f"""
-    <div style="overflow-x:auto;border-radius:10px;border:1px solid #1e1e2e;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead>
-            <tr style="background:#0a0a14;">
-                <th style="padding:10px 12px;text-align:left;color:#718096;font-weight:500;">플랫폼</th>
-                <th style="padding:10px 12px;text-align:center;color:#718096;font-weight:500;">채널</th>
-                <th style="padding:10px 12px;text-align:right;color:#718096;font-weight:500;">ZOR</th>
-                <th style="padding:10px 12px;text-align:right;color:#718096;font-weight:500;">ZRE</th>
-                <th style="padding:10px 12px;text-align:right;color:#718096;font-weight:500;">순영수증</th>
-                <th style="padding:10px 12px;text-align:right;color:#718096;font-weight:500;">총매출</th>
-                <th style="padding:10px 12px;text-align:right;color:#718096;font-weight:500;">포인트</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    st.info("KPI 데이터가 없습니다.")
-
-st.divider()
-
 # ── 탭 ────────────────────────────────────────────────────────────────
-tab_labels = []
-if "html" in output_options:
-    tab_labels.append("📧 HTML 미리보기")
-tab_labels.append("🎯 타겟 달성현황")
-if anomalies:
-    tab_labels.append("⚠️ 이상치")
-if state.get("llm_commentary"):
-    tab_labels.append("🤖 AI 코멘터리")
-tab_labels.append("📈 매출 추이")
-tab_labels.append("📥 다운로드")
+tab_brief, tab_trend = st.tabs(["오늘의 브리핑", "추이 분석"])
 
-tabs = st.tabs(tab_labels)
-tab_idx = 0
+with tab_brief:
 
-# HTML 미리보기
-if "html" in output_options:
-    with tabs[tab_idx]:
-        html_report = state.get("html_report", "")
-        if html_report:
-            components.html(html_report, height=900, scrolling=True)
-        else:
-            st.info("HTML 리포트가 생성되지 않았습니다.")
-    tab_idx += 1
+    # ── KPI 스트립 ────────────────────────────────────────────────────
+    forecast = patterns.get("forecast", {})
+    forecast_pct = forecast.get("forecast_achievement_pct")
+    monthly_pct = target_summary.get("total_achievement_pct")
 
-# 타겟 달성현황
-with tabs[tab_idx]:
-    if db_skipped_count > 0:
-        st.info(f"이미 저장된 데이터 {db_skipped_count}건 스킵 (중복 업로드)")
+    def _cell(label, value, color=None):
+        color_style = f"color:{color};" if color else f"color:{T['text_primary']};"
+        return f"""
+        <div style="background:{T['surface']};padding:14px 12px;">
+            <div style="font-size:11px;color:{T['text_tertiary']};margin-bottom:6px;">{label}</div>
+            <div style="font-size:18px;font-weight:600;font-family:monospace;{color_style}">{value}</div>
+        </div>"""
 
-    is_cumulative = bool(kpi_cumulative and kpi_cumulative.get("by_platform"))
-    basis_label = "월 누계 기준" if is_cumulative else "당일 기준"
+    anomaly_count = len(anomalies)
+    anomaly_color = T['danger'] if anomaly_count > 0 else T['success']
+
+    cells = [
+        _cell("순영수증", f"{kpi_total.get('net_receipt', 0):,}건"),
+        _cell("총매출", f"{kpi_total.get('total_sales', 0):,.0f}원"),
+        _cell("총포인트", f"{kpi_total.get('total_point', 0):,.0f}P"),
+        _cell("이상치", f"{anomaly_count}건", anomaly_color),
+        _cell("월누계 달성률", f"{monthly_pct}%" if monthly_pct is not None else "—", T['accent']),
+        _cell("월말 예측", f"{forecast_pct}%" if forecast_pct is not None else "—",
+              T['success'] if (forecast_pct or 0) >= 90 else T['accent']),
+    ]
+    st.markdown(f"""
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:{T['line']};
+                border:1px solid {T['line']};border-radius:8px;overflow:hidden;margin-bottom:20px;">
+        {"".join(cells)}
+    </div>
+    """, unsafe_allow_html=True)
+
+    forecast_summary = esc(insights.get("forecast_summary", ""))
+    if forecast_summary:
+        st.caption(f"📈 {forecast_summary}")
+
+    # ── 오늘의 핵심 이슈 (헤드라인 카드) ─────────────────────────────
+    def _issue_detail(category: str) -> tuple:
+        """category별 rule 수치로 상세문장·태그 생성. LLM 아님 — 이스케이프 불필요."""
+        if category == "목표미달":
+            adt = patterns.get("adjusted_daily_target", {})
+            sev = adt.get("severity", "low")
+            detail = (
+                f"조정 일별 목표 {adt.get('adjusted_daily_required', 0):,}원 대비 "
+                f"오늘 순매출 {adt.get('today_net_sales', 0):,}원."
+            )
+            tags = [
+                f"잔여 {adt.get('days_remaining', 0)}일",
+                f"일평균 필요 {adt.get('adjusted_daily_required', 0):,}원",
+            ]
+            return sev, detail, tags
+        if category == "반품이슈":
+            ra = patterns.get("return_anomalies", [])
+            if ra:
+                top = ra[0]
+                sev = top.get("severity", "medium")
+                detail = (
+                    f"{top.get('product_name', '')} 오늘 반품 {top.get('today_returns', 0)}건, "
+                    f"평소 대비 {top.get('multiplier', 0)}배."
+                )
+                tags = [
+                    f"오늘 반품금액 {top.get('today_return_amount', 0):,}원",
+                    f"평소 반품률 {top.get('hist_rate', 0) * 100:.1f}%",
+                ]
+                return sev, detail, tags
+            return "medium", "", []
+        if category == "수익성문제":
+            d = patterns.get("discount_sensitivity", {})
+            dev = d.get("margin_deviation")
+            detail = (
+                f"실제 마진율 {d.get('margin_pct_overall', '—')}% "
+                f"(이론 대비 {dev}%p)"
+            ) if dev is not None else ""
+            return "medium", detail, []
+        if category == "추세악화":
+            t = patterns.get("trend_direction_30d", {})
+            detail = f"30일 방향 {t.get('overall_direction', '')}, 가속도 z={t.get('accel_zscore', '—')}"
+            return "medium", detail, []
+        return "medium", "", []
+
+    top_issues = insights.get("top_issues", [])
+    if top_issues:
+        st.markdown("<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                     f"letter-spacing:.05em;color:{T['text_secondary']};margin-bottom:10px;'>"
+                     "오늘의 핵심 이슈</div>", unsafe_allow_html=True)
+
+        for item in top_issues:
+            category = item.get("category", "기타")
+            issue_text = esc(item.get("issue", ""))
+            sev, detail, tags = _issue_detail(category)
+            badge_bg = T['danger_soft'] if sev == "high" else T['surface_raised']
+            badge_fg = T['danger'] if sev == "high" else T['text_secondary']
+            badge_label = "심각" if sev == "high" else "주의"
+            tags_html = "".join(
+                f'<span style="font-size:11px;color:{T["text_tertiary"]};background:{T["surface_raised"]};'
+                f'border-radius:4px;padding:3px 8px;font-family:monospace;margin-right:6px;">{esc(tg)}</span>'
+                for tg in tags
+            )
+            st.markdown(f"""
+            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
+                        border-left:4px solid {T['danger']};padding:16px 18px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;
+                                background:{badge_bg};color:{badge_fg};">{badge_label}</span>
+                    <span style="font-size:11px;color:{T['text_tertiary']};background:{T['surface_raised']};
+                                border-radius:4px;padding:3px 8px;font-family:monospace;">{esc(category)}</span>
+                </div>
+                <h3 style="font-size:16px;font-weight:600;margin:6px 0;color:{T['text_primary']};">{issue_text}</h3>
+                {f'<p style="font-size:13px;color:{T["text_secondary"]};margin:0 0 10px;">{detail}</p>' if detail else ''}
+                {f'<div>{tags_html}</div>' if tags_html else ''}
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── 이상치 리스트 (목표 미달/초과 + 기타 이상치) ─────────────────
+    low_ach = [a for a in anomalies if a.get("type") == "low_achievement"]
+    other_anoms = [a for a in anomalies if a.get("type") != "low_achievement"]
+    target_by_platform = {p["platform"]: p for p in target_summary.get("by_platform", [])}
+    over_ach = [p for p in target_summary.get("by_platform", []) if p.get("achievement_pct", 0) >= 100]
+
+    if anomalies:
+        st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                     f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
+                     f"이상치 {len(anomalies)}건 · 확인 필요</div>", unsafe_allow_html=True)
+
+        for a in low_ach:
+            platform = a.get("platform", "")
+            pt = target_by_platform.get(platform, {})
+            pct = pt.get("achievement_pct", 0)
+            dot = get_store_color(platform)
+            st.markdown(f"""
+            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
+                        border-left:4px solid {T['danger']};padding:16px 18px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+                    <div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T['text_primary']};">
+                        <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
+                        {esc(platform)}
+                    </div>
+                    <div style="flex:2;font-size:12.5px;color:{T['text_secondary']};">
+                        월 달성률 {pct}% · 기준(70%) 미달 · 일평균 {pt.get('daily_required', 0):,}원 필요
+                    </div>
+                    <div style="width:110px;height:6px;background:{T['surface_raised']};border-radius:3px;overflow:hidden;flex-shrink:0;">
+                        <div style="height:100%;border-radius:3px;background:{T['danger']};width:{min(pct,100)}%;"></div>
+                    </div>
+                    <div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T['danger']};">{pct}%</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        for a in other_anoms:
+            sev_color = T['danger'] if a.get("severity") == "warning" else T['text_secondary']
+            dot = get_store_color(a.get("platform", ""))
+            st.markdown(f"""
+            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
+                        border-left:4px solid {sev_color};padding:14px 18px;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;font-size:13px;color:{T['text_secondary']};">
+                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
+                    {esc(a.get('message', ''))}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        for pt in over_ach:
+            platform = pt["platform"]
+            dot = get_store_color(platform)
+            pct = pt.get("achievement_pct", 0)
+            st.markdown(f"""
+            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
+                        border-left:4px solid {T['success']};padding:16px 18px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
+                    <div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T['text_primary']};">
+                        <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
+                        {esc(platform)} — 목표 초과 달성
+                    </div>
+                    <div style="flex:2;font-size:12.5px;color:{T['text_secondary']};">
+                        월 달성률 {pct}% · 잔여 목표 없음, 이례적 호실적
+                    </div>
+                    <div style="width:110px;height:6px;background:{T['surface_raised']};border-radius:3px;overflow:hidden;flex-shrink:0;">
+                        <div style="height:100%;border-radius:3px;background:{T['success']};width:100%;"></div>
+                    </div>
+                    <div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T['success']};">{pct}%</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── 플랫폼별 매출 차트 ────────────────────────────────────────────
+    def _build_bar_chart_html(records: list) -> str:
+        if not records:
+            return (f'<html><body style="background:{T["bg"]};margin:0;display:flex;'
+                     f'align-items:center;justify-content:center;height:260px;">'
+                     f'<p style="color:{T["text_tertiary"]};font-family:sans-serif;">데이터 없음</p></body></html>')
+
+        W, H = 580, 310
+        mt, mr, mb, ml = 20, 20, 90, 55
+        pw, ph = W - ml - mr, H - mt - mb
+
+        n = len(records)
+        bar_group = pw / n
+        bar_w = bar_group * 0.62
+        max_val = max(r["total_sales"] for r in records) or 1
+
+        bars = []
+        for i, rec in enumerate(records):
+            pct = rec["total_sales"] / max_val
+            bh = max(ph * pct, 2)
+            x = ml + i * bar_group + (bar_group - bar_w) / 2
+            y = mt + ph - bh
+            color = get_store_color(rec["platform"])
+            val_man = rec["total_sales"] // 10000
+            label = rec["platform"]
+
+            bars.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="{color}" rx="4" opacity="0.9"/>')
+            if val_man > 0:
+                bars.append(f'<text x="{x+bar_w/2:.1f}" y="{y-6:.1f}" text-anchor="middle" fill="{T["text_secondary"]}" font-size="11" font-family="sans-serif">{val_man:,}만</text>')
+
+            cx_bar = x + bar_w / 2
+            label_y = H - mb + 14
+            bars.append(
+                f'<text x="{cx_bar:.1f}" y="{label_y:.1f}" text-anchor="end" '
+                f'transform="rotate(-35 {cx_bar:.1f} {label_y:.1f})" '
+                f'fill="{T["text_tertiary"]}" font-size="10" font-family="sans-serif">{label}</text>'
+            )
+
+        y_lines = []
+        for i in range(5):
+            y_pos = mt + ph * i / 4
+            val = int(max_val * (4 - i) / 4 / 10000)
+            y_lines.append(f'<line x1="{ml}" y1="{y_pos:.1f}" x2="{W-mr}" y2="{y_pos:.1f}" stroke="{T["surface_raised"]}" stroke-width="1"/>')
+            y_lines.append(f'<text x="{ml-6}" y="{y_pos+4:.1f}" text-anchor="end" fill="{T["text_tertiary"]}" font-size="10" font-family="sans-serif">{val:,}만</text>')
+
+        svg = (
+            f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">'
+            f'{"".join(y_lines)}{"".join(bars)}</svg>'
+        )
+        return f'<!DOCTYPE html><html><head><style>body{{margin:0;background:{T["bg"]};overflow:hidden;}}</style></head><body>{svg}</body></html>'
+
+    st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                 f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
+                 f"플랫폼별 매출 (당일)</div>", unsafe_allow_html=True)
+
+    if by_platform:
+        legend_items = "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;font-size:12px;color:{T["text_secondary"]};">'
+            f'<i style="width:9px;height:9px;border-radius:2px;background:{get_store_color(r["platform"])};display:inline-block;"></i>{esc(r["platform"])}</span>'
+            for r in by_platform
+        )
+        st.markdown(f"<div style='margin-bottom:8px;'>{legend_items}</div>", unsafe_allow_html=True)
+        components.html(_build_bar_chart_html(by_platform), height=328)
+    else:
+        st.info("KPI 데이터가 없습니다.")
+
+    # ── 플랫폼별 목표 달성률 ──────────────────────────────────────────
+    st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                 f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
+                 f"플랫폼별 목표 달성률</div>", unsafe_allow_html=True)
 
     if target_summary and target_summary.get("total_target", 0) > 0:
-        total_pct = target_summary.get("total_achievement_pct", 0)
-        color = "#3f51b5" if total_pct >= 70 else "#f57c00"
-        daily_total = kpi_total.get("total_sales", 0)
-        cumulative_total = target_summary.get("total_actual", 0)
-        daily_line = f"&nbsp;·&nbsp; 당일 매출: {daily_total:,}원" if is_cumulative else ""
+        is_cumulative = bool(kpi_cumulative and kpi_cumulative.get("by_platform"))
+        basis_label = "월 누계 기준" if is_cumulative else "당일 기준"
 
+        if db_skipped_count > 0:
+            st.caption(f"ℹ️ 이미 저장된 데이터 {db_skipped_count}건 스킵 (중복 업로드)")
+
+        total_pct = target_summary.get("total_achievement_pct", 0)
+        color = T['success'] if total_pct >= 100 else (T['accent'] if total_pct >= 70 else T['danger'])
+        daily_line = (
+            f" · 당일 매출: {kpi_total.get('total_sales', 0):,}원" if is_cumulative else ""
+        )
         st.markdown(f"""
-        <div style="background:#1e1e2e;border-radius:10px;padding:16px 20px;margin-bottom:16px;">
-          <div style="font-size:12px;color:#718096;margin-bottom:4px;">전체 달성률 — {target_summary.get('month','')} ({basis_label})</div>
-          <div style="font-size:28px;font-weight:700;color:{color};">{total_pct}%</div>
-          <div style="font-size:12px;color:#4a5568;margin-top:2px;">
-            월 누계: {cumulative_total:,} / {target_summary.get('total_target',0):,}원
-            {daily_line}
-            &nbsp;·&nbsp; 잔여 {target_summary.get('days_remaining',0)}일
-            &nbsp;·&nbsp; 일평균 {target_summary.get('daily_required',0):,}원 필요
-          </div>
+        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:14px 18px;margin-bottom:10px;">
+            <div style="font-size:12px;color:{T['text_tertiary']};margin-bottom:4px;">
+                전체 달성률 — {target_summary.get('month', '')} ({basis_label})
+            </div>
+            <div style="font-size:24px;font-weight:700;color:{color};">{total_pct}%</div>
+            <div style="font-size:12px;color:{T['text_secondary']};margin-top:2px;">
+                월 누계: {target_summary.get('total_actual', 0):,} / {target_summary.get('total_target', 0):,}원{daily_line}
+                · 잔여 {target_summary.get('days_remaining', 0)}일
+                · 일평균 {target_summary.get('daily_required', 0):,}원 필요
+            </div>
         </div>
         """, unsafe_allow_html=True)
-        st.progress(min(total_pct / 100, 1.0))
 
-        st.markdown("**플랫폼별 달성률**")
+        rows_html = ""
+        targeted_platforms = set()
         for pt in target_summary.get("by_platform", []):
+            targeted_platforms.add(pt["platform"])
             pct = pt.get("achievement_pct", 0)
-            flag = "🟠" if pt.get("flag") == "low_achievement" else "🔵"
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                st.markdown(f"{flag} **{pt['platform']}**")
-                st.progress(min(pct / 100, 1.0))
-                st.caption(f"{pt.get('actual',0):,} / {pt.get('target',0):,}원 · 일평균 {pt.get('daily_required',0):,}원 필요")
-            with col_b:
-                color_pt = "#f57c00" if pct < 70 else "#3f51b5"
-                st.markdown(f"<div style='font-size:22px;font-weight:700;color:{color_pt};text-align:right;padding-top:8px;'>{pct}%</div>", unsafe_allow_html=True)
+            dot = get_store_color(pt["platform"])
+            row_color = T['success'] if pct >= 100 else (T['danger'] if pt.get("flag") == "low_achievement" else T['text_primary'])
+            fill_color = T['success'] if pct >= 100 else (T['danger'] if pt.get("flag") == "low_achievement" else T['accent'])
+            rows_html += f"""
+            <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T['line']};">
+                <div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T['text_primary']};">
+                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(pt['platform'])}
+                </div>
+                <div style="flex:1;height:8px;background:{T['surface_raised']};border-radius:4px;overflow:hidden;">
+                    <div style="height:100%;border-radius:4px;background:{fill_color};width:{min(pct,100)}%;"></div>
+                </div>
+                <div style="width:56px;text-align:right;font-family:monospace;font-size:13px;font-weight:600;flex-shrink:0;color:{row_color};">{pct}%</div>
+                <div style="width:190px;font-size:11px;color:{T['text_tertiary']};flex-shrink:0;text-align:right;">
+                    {'잔여 목표 없음' if pct >= 100 else f"일평균 {pt.get('daily_required', 0):,}원 필요"}
+                </div>
+            </div>"""
+
+        for r in by_platform:
+            if r["platform"] in targeted_platforms:
+                continue
+            dot = get_store_color(r["platform"])
+            rows_html += f"""
+            <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T['line']};">
+                <div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T['text_primary']};">
+                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(r['platform'])}
+                </div>
+                <div style="flex:1;height:8px;background:{T['surface_raised']};border-radius:4px;overflow:hidden;"></div>
+                <div style="width:56px;text-align:right;">
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:{T['surface_raised']};color:{T['text_secondary']};">미설정</span>
+                </div>
+                <div style="width:190px;"></div>
+            </div>"""
+
+        st.markdown(f"""
+        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:6px 18px;margin-bottom:10px;">
+            {rows_html}
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.info("타겟이 설정되지 않았습니다. 이번 달 목표 매출을 입력하면 달성률을 확인할 수 있습니다.")
+        st.markdown(f"""
+        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:20px;text-align:center;margin-bottom:12px;">
+            <div style="font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:6px;">목표 미설정</div>
+            <div style="font-size:12.5px;color:{T['text_tertiary']};">이번 달 목표 매출을 입력하면 달성률을 확인할 수 있습니다.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
         with st.form("quick_target_form"):
             st.caption("월 전체 타겟을 입력하세요 (플랫폼별 상세는 config.py에서 설정 가능)")
@@ -393,12 +517,11 @@ with tabs[tab_idx]:
             days_remaining = max(total_days - day_of_month, 0)
             month_key = f"{report_date_raw[:4]}-{report_date_raw[4:6]}"
 
+            is_cumulative = bool(kpi_cumulative and kpi_cumulative.get("by_platform"))
             if is_cumulative:
                 total_actual = int(sum(r.get("total_revenue", 0) for r in kpi_cumulative["by_platform"]))
-                platform_actual_map = {r["platform"]: int(r.get("total_revenue", 0)) for r in kpi_cumulative["by_platform"]}
             else:
                 total_actual = kpi_total.get("total_sales", 0)
-                platform_actual_map = {r["platform"]: r["total_sales"] for r in by_platform}
 
             remaining = max(form_total_target - total_actual, 0)
             daily_req = int(remaining / days_remaining) if days_remaining > 0 else 0
@@ -416,185 +539,97 @@ with tabs[tab_idx]:
             st.session_state["result_state"] = {**state, "target_summary": computed_target}
             st.rerun()
 
-tab_idx += 1
+    # ── 오늘 할 일 ────────────────────────────────────────────────────
+    if actions:
+        st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                     f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
+                     f"오늘 할 일</div>", unsafe_allow_html=True)
 
-# 이상치
-if anomalies:
-    with tabs[tab_idx]:
-        for a in anomalies:
-            severity = a.get("severity", "info")
-            msg = a.get("message", "")
-            if severity == "warning":
-                st.warning(f"**[{a.get('type','').upper()}]** {msg}")
+        for a in actions:
+            timing = a.get("timing", "")
+            if "오늘" in timing:
+                tag_bg, tag_fg = T['danger_soft'], T['danger']
+            elif "주" in timing:
+                tag_bg, tag_fg = T['surface_raised'], T['text_secondary']
             else:
-                st.info(f"**[{a.get('type','').upper()}]** {msg}")
-    tab_idx += 1
+                tag_bg, tag_fg = T['accent_soft'], T['accent']
 
-# AI 코멘터리
-if state.get("llm_commentary"):
-    with tabs[tab_idx]:
-        # ── 인사이트 카드 3개 ─────────────────────────────────────────
-        _insights = state.get("insights", {})
-        _patterns = state.get("patterns", {})
-        _actions = state.get("actions", [])
-        _fc = _patterns.get("forecast", {})
-
-        _card_style = (
-            "background:#1a1a2e;border-radius:8px;padding:16px 18px;"
-            "min-height:140px;height:100%;box-sizing:border-box;"
-        )
-
-        # 카드 1: 핵심 이슈
-        _top_issues = _insights.get("top_issues", [])
-        if _top_issues:
-            _issue = " / ".join(
-                f"[{it.get('category', '')}] {it.get('issue', '')}"
-                for it in _top_issues
-            )
-            _rel = _insights.get("relation")
-            _reason = ("두 이슈 연결됨 — 한쪽이 다른 쪽 원인" if _rel == "linked"
-                       else "두 이슈 독립적 — 원인 다름" if _rel == "independent"
-                       else "")
-        else:
-            _issue = "이상 징후 없음"
-            _reason = ""
-        _reason_html = f'<div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.5;">{_reason}</div>' if _reason else ""
-
-        # 카드 2: 월말 예측
-        _pct = _fc.get("forecast_achievement_pct", 0)
-        _fc_color = "#10b981" if _pct >= 90 else ("#3b82f6" if _pct >= 70 else "#f59e0b")
-        _fc_total = _fc.get("forecast_total", 0)
-        _fc_days = _fc.get("days_remaining", 0)
-        _fc_summary = _insights.get("forecast_summary", "")
-        _fc_sub = f"{_fc_total:,.0f}원 / 잔여 {_fc_days}일" if _fc else "데이터 없음"
-        _fc_summary_html = f'<div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4;">{_fc_summary}</div>' if _fc_summary else ""
-
-        # 카드 3: 오늘 할 일
-        _action_lines = []
-        for _a in _actions:
-            _t = _a.get("timing", "")
-            if "오늘" in _t:
-                _tag, _tag_color = "오늘", "#ef4444"
-            elif "주" in _t:
-                _tag, _tag_color = "이번 주", "#f59e0b"
-            elif "달" in _t:
-                _tag, _tag_color = "이번 달", "#3b82f6"
-            else:
-                continue
-            _owner = _a.get("owner", "")
-            _act = _a.get("action", "")
-            _action_lines.append(
-                f'<div style="margin-bottom:8px;">'
-                f'<span style="font-size:10px;background:{_tag_color}22;color:{_tag_color};'
-                f'padding:2px 6px;border-radius:4px;font-weight:600;">{_tag}</span> '
-                f'<span style="font-size:11px;color:#718096;">{_owner}</span><br>'
-                f'<span style="font-size:12px;color:#cbd5e0;">{_act}</span>'
-                f'</div>'
-            )
-        _actions_html = "".join(_action_lines) if _action_lines else '<div style="font-size:12px;color:#4a5568;">액션 없음</div>'
-
-        _col1, _col2, _col3 = st.columns(3)
-        with _col1:
             st.markdown(f"""
-            <div style="{_card_style}border-left:4px solid #ef4444;">
-              <div style="font-size:11px;color:#ef4444;font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
-                🚨 오늘의 핵심 이슈
-              </div>
-              <div style="font-size:13px;color:#e2e8f0;font-weight:500;line-height:1.5;">{_issue}</div>
-              {_reason_html}
+            <div style="display:flex;gap:14px;align-items:flex-start;background:{T['surface']};
+                        border:1px solid {T['line']};border-radius:8px;padding:14px 16px;margin-bottom:8px;">
+                <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:110px;">
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;
+                                background:{tag_bg};color:{tag_fg};text-align:center;">{esc(timing)}</span>
+                    <span style="font-size:11px;color:{T['text_tertiary']};background:{T['surface_raised']};
+                                border-radius:4px;padding:3px 8px;font-family:monospace;text-align:center;">{esc(a.get('owner', ''))}</span>
+                </div>
+                <div style="font-size:13.5px;line-height:1.55;color:{T['text_primary']};">{esc(a.get('action', ''))}</div>
             </div>
             """, unsafe_allow_html=True)
 
-        with _col2:
-            st.markdown(f"""
-            <div style="{_card_style}border-left:4px solid {_fc_color};">
-              <div style="font-size:11px;color:{_fc_color};font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
-                📈 월말 예측
-              </div>
-              <div style="font-size:28px;font-weight:700;color:{_fc_color};">{_pct}%</div>
-              <div style="font-size:12px;color:#94a3b8;margin-top:4px;">{_fc_sub}</div>
-              {_fc_summary_html}
-            </div>
-            """, unsafe_allow_html=True)
+    # ── AI 코멘터리 ───────────────────────────────────────────────────
+    llm_commentary = state.get("llm_commentary", "")
+    if llm_commentary:
+        with st.expander("AI 코멘터리 전문 보기"):
+            st.caption(LLM_MODEL.upper())
+            st.markdown(f"<div style='font-size:14px;line-height:1.8;color:{T['text_secondary']};'>{esc(llm_commentary)}</div>",
+                        unsafe_allow_html=True)
 
-        with _col3:
-            st.markdown(f"""
-            <div style="{_card_style}border-left:4px solid #10b981;">
-              <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:0.6px;margin-bottom:10px;">
-                ✅ 오늘 할 일
-              </div>
-              {_actions_html}
-            </div>
-            """, unsafe_allow_html=True)
 
-        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-
-        # ── AI 코멘터리 텍스트 ────────────────────────────────────────
-        st.markdown(f"""
-        <div style="background:#1e1e2e; border-left:3px solid #10b981;
-                    border-radius:0 12px 12px 0; padding:20px 24px; margin-top:8px;">
-            <div style="font-size:11px; color:#10b981; letter-spacing:0.8px;
-                        text-transform:uppercase; margin-bottom:10px; font-weight:600;">
-                AI 코멘터리 · GPT-4o-mini
-            </div>
-            <div style="font-size:14px; line-height:1.8; color:#cbd5e0;">{state['llm_commentary']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    tab_idx += 1
-
-# 매출 추이
-with tabs[tab_idx]:
+with tab_trend:
     offline_proc = state.get("offline_processed")
     online_proc = state.get("online_processed")
     ts = _prepare_time_series(offline_proc, online_proc)
 
+    is_dark = st.session_state["report_theme"] == "dark"
+    plotly_template = "plotly_dark" if is_dark else "plotly_white"
+    PAPER_BG = T['bg']
+    PLOT_BG = T['surface']
+    GRID = "rgba(128,128,128,0.2)"
+
     if ts is None or ts.empty:
         st.info("데이터를 먼저 로드해주세요.")
     else:
-        _DARK_BG = "#16162a"
-        _PLOT_BG = "#1e1e2e"
-        _GRID = "rgba(128,128,128,0.2)"
-
-        # 차트 1: 채널별 매출 추이
-        st.markdown("**채널별 매출 추이**")
+        st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>채널별 매출 추이</div>",
+                    unsafe_allow_html=True)
         period_opt = st.radio("집계 단위", ["일별", "주별", "월별"], horizontal=True, key="ts_period")
         period_col = {"일별": "판매일자", "주별": "주", "월별": "월"}[period_opt]
 
         grp = ts.groupby([period_col, "채널"], as_index=False)["매출"].sum()
         fig1 = px.line(
             grp, x=period_col, y="매출", color="채널",
-            color_discrete_map={"오프라인": "#3b82f6", "온라인": "#10b981"},
-            template="plotly_dark",
+            color_discrete_map={"오프라인": T['accent'], "온라인": T['gray_2']},
+            template=plotly_template,
         )
         fig1.update_layout(
-            paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
+            paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
             margin=dict(l=0, r=0, t=20, b=0),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        fig1.update_yaxes(showgrid=True, gridcolor=_GRID, tickformat=",")
+        fig1.update_yaxes(showgrid=True, gridcolor=GRID, tickformat=",")
         fig1.update_xaxes(showgrid=False)
         st.plotly_chart(fig1, use_container_width=True)
 
         col_c1, col_c2 = st.columns(2)
 
-        # 차트 2: 플랫폼별 매출 비중
         with col_c1:
-            st.markdown("**플랫폼별 매출 비중**")
+            st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>플랫폼별 매출 비중</div>",
+                        unsafe_allow_html=True)
             if by_platform:
                 fig2 = px.pie(
                     values=[r["total_sales"] for r in by_platform],
                     names=[r["platform"] for r in by_platform],
-                    template="plotly_dark",
-                    color_discrete_sequence=["#3b82f6", "#60a5fa", "#93c5fd", "#10b981", "#34d399", "#6ee7b7"],
+                    template=plotly_template,
+                    color_discrete_sequence=[get_store_color(r["platform"]) for r in by_platform],
                 )
-                fig2.update_layout(paper_bgcolor=_DARK_BG, margin=dict(l=0, r=0, t=20, b=0))
+                fig2.update_layout(paper_bgcolor=PAPER_BG, margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig2, use_container_width=True)
             else:
                 st.info("플랫폼 데이터 없음")
 
-        # 차트 3: 중분류별 매출
         with col_c2:
-            st.markdown("**중분류별 매출 TOP10**")
+            st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>중분류별 매출 TOP10</div>",
+                        unsafe_allow_html=True)
             by_category = kpi_summary.get("by_category", [])
             if by_category:
                 l2_map: dict = {}
@@ -606,21 +641,18 @@ with tabs[tab_idx]:
                     x=[v for _, v in sorted_l2],
                     y=[k for k, _ in sorted_l2],
                     orientation="h",
-                    template="plotly_dark",
-                    color_discrete_sequence=["#3b82f6"],
+                    template=plotly_template,
+                    color_discrete_sequence=[T['accent']],
                 )
-                fig3.update_layout(
-                    paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
-                    margin=dict(l=0, r=0, t=20, b=0),
-                )
-                fig3.update_xaxes(tickformat=",", showgrid=True, gridcolor=_GRID)
+                fig3.update_layout(paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG, margin=dict(l=0, r=0, t=20, b=0))
+                fig3.update_xaxes(tickformat=",", showgrid=True, gridcolor=GRID)
                 fig3.update_yaxes(showgrid=False)
                 st.plotly_chart(fig3, use_container_width=True)
             else:
                 st.info("카테고리 데이터 없음")
 
-        # 차트 4: 제품 TOP10
-        st.markdown("**제품별 매출 TOP10**")
+        st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>제품별 매출 TOP10</div>",
+                    unsafe_allow_html=True)
         by_product = kpi_summary.get("by_product", [])
         if by_product:
             top10 = list(reversed(by_product[:10]))
@@ -628,53 +660,12 @@ with tabs[tab_idx]:
                 x=[p["total_sales"] for p in top10],
                 y=[p["product_name"] for p in top10],
                 orientation="h",
-                template="plotly_dark",
-                color_discrete_sequence=["#10b981"],
+                template=plotly_template,
+                color_discrete_sequence=[T['success']],
             )
-            fig4.update_layout(
-                paper_bgcolor=_DARK_BG, plot_bgcolor=_PLOT_BG,
-                margin=dict(l=0, r=0, t=20, b=0),
-                height=360,
-            )
-            fig4.update_xaxes(tickformat=",", showgrid=True, gridcolor=_GRID)
+            fig4.update_layout(paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG, margin=dict(l=0, r=0, t=20, b=0), height=360)
+            fig4.update_xaxes(tickformat=",", showgrid=True, gridcolor=GRID)
             fig4.update_yaxes(showgrid=False)
             st.plotly_chart(fig4, use_container_width=True)
         else:
             st.info("제품 데이터 없음")
-
-tab_idx += 1
-
-# 다운로드
-with tabs[tab_idx]:
-    st.markdown("**리포트 다운로드**")
-    col_d1, col_d2 = st.columns(2)
-
-    with col_d1:
-        html_report = state.get("html_report", "")
-        if "html" in output_options and html_report:
-            st.download_button(
-                label="📧 HTML 리포트 다운로드",
-                data=html_report.encode("utf-8"),
-                file_name=f"sales_report_{report_date_raw}.html",
-                mime="text/html",
-                use_container_width=True,
-            )
-
-    with col_d2:
-        excel_path = state.get("excel_path", "")
-        if "excel" in output_options and excel_path and Path(excel_path).exists():
-            with open(excel_path, "rb") as f:
-                st.download_button(
-                    label="📥 Excel 리포트 다운로드",
-                    data=f.read(),
-                    file_name=f"sales_report_{report_date_raw}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-
-    st.divider()
-    st.markdown("**이메일 발송 상태**")
-    if state.get("email_sent"):
-        st.success("이메일이 성공적으로 발송되었습니다.")
-    else:
-        st.info(".env 파일에 EMAIL_SENDER, EMAIL_PASSWORD를 설정하면 자동 발송됩니다.")
