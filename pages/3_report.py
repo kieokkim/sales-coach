@@ -92,24 +92,26 @@ col_brand, col_date, col_theme, col_dl1, col_dl2, col_new = st.columns(
 )
 
 with col_brand:
-    st.markdown(f"""
-    <div style="display:flex; align-items:center; gap:10px; height:100%;">
-        <div style="width:34px;height:34px;border-radius:8px;background:{T['accent_soft']};
-                    color:{T['accent']};display:flex;align-items:center;justify-content:center;
-                    font-weight:700;font-family:sans-serif;">SC</div>
-        <div>
-            <div style="font-size:20px; font-weight:700; color:{T['text_primary']};">판매일보</div>
-            <div style="font-size:12px; color:{T['text_tertiary']}; margin-top:1px;">AI 매출 분석 에이전트</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="display:flex; align-items:center; gap:10px; height:100%;">'
+        f'<div style="width:34px;height:34px;border-radius:8px;background:{T["accent_soft"]};'
+        f'color:{T["accent"]};display:flex;align-items:center;justify-content:center;'
+        f'font-weight:700;font-family:sans-serif;">SC</div>'
+        f'<div>'
+        f'<div style="font-size:20px; font-weight:700; color:{T["text_primary"]};">판매일보</div>'
+        f'<div style="font-size:12px; color:{T["text_tertiary"]}; margin-top:1px;">AI 매출 분석 에이전트</div>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 with col_date:
-    st.markdown(f"""
-    <div style="margin-top:8px;font-size:12px;color:{T['text_secondary']};background:{T['surface']};
-                border:1px solid {T['line']};border-radius:6px;padding:8px 12px;
-                font-family:monospace;text-align:center;">{report_date_display} 기준</div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="margin-top:8px;font-size:12px;color:{T["text_secondary"]};background:{T["surface"]};'
+        f'border:1px solid {T["line"]};border-radius:6px;padding:8px 12px;'
+        f'font-family:monospace;text-align:center;">{report_date_display} 기준</div>',
+        unsafe_allow_html=True,
+    )
 
 with col_theme:
     theme_icon = "🌙" if st.session_state["report_theme"] == "dark" else "☀️"
@@ -152,6 +154,9 @@ if state.get("email_sent"):
 
 st.markdown(f"<div style='border-bottom:1px solid {T['line']}; margin:6px 0 18px;'></div>", unsafe_allow_html=True)
 
+if db_skipped_count > 0:
+    st.caption(f"ℹ️ 이미 저장된 데이터 {db_skipped_count}건 스킵 (중복 업로드)")
+
 errors = state.get("errors", [])
 if errors:
     with st.expander(f"⚠️ 처리 중 경고 {len(errors)}건", expanded=False):
@@ -179,11 +184,12 @@ with tab_brief:
 
     def _cell(label, value, color=None):
         color_style = f"color:{color};" if color else f"color:{T['text_primary']};"
-        return f"""
-        <div style="background:{T['surface']};padding:14px 12px;">
-            <div style="font-size:11px;color:{T['text_tertiary']};margin-bottom:6px;">{label}</div>
-            <div style="font-size:18px;font-weight:600;font-family:monospace;{color_style}">{value}</div>
-        </div>"""
+        return (
+            f'<div style="background:{T["surface"]};padding:14px 12px;">'
+            f'<div style="font-size:11px;color:{T["text_tertiary"]};margin-bottom:6px;">{label}</div>'
+            f'<div style="font-size:18px;font-weight:600;font-family:monospace;{color_style}">{value}</div>'
+            f'</div>'
+        )
 
     anomaly_count = len(anomalies)
     anomaly_color = T['danger'] if anomaly_count > 0 else T['success']
@@ -197,12 +203,13 @@ with tab_brief:
         _cell("월말 예측", f"{forecast_pct}%" if forecast_pct is not None else "—",
               T['success'] if (forecast_pct or 0) >= 90 else T['accent']),
     ]
-    st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:{T['line']};
-                border:1px solid {T['line']};border-radius:8px;overflow:hidden;margin-bottom:20px;">
-        {"".join(cells)}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:{T["line"]};'
+        f'border:1px solid {T["line"]};border-radius:8px;overflow:hidden;margin-bottom:20px;">'
+        f'{"".join(cells)}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     forecast_summary = esc(insights.get("forecast_summary", ""))
     if forecast_summary:
@@ -270,20 +277,25 @@ with tab_brief:
                 f'border-radius:4px;padding:3px 8px;font-family:monospace;margin-right:6px;">{esc(tg)}</span>'
                 for tg in tags
             )
-            st.markdown(f"""
-            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
-                        border-left:4px solid {T['danger']};padding:16px 18px;margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;
-                                background:{badge_bg};color:{badge_fg};">{badge_label}</span>
-                    <span style="font-size:11px;color:{T['text_tertiary']};background:{T['surface_raised']};
-                                border-radius:4px;padding:3px 8px;font-family:monospace;">{esc(category)}</span>
-                </div>
-                <h3 style="font-size:16px;font-weight:600;margin:6px 0;color:{T['text_primary']};">{issue_text}</h3>
-                {f'<p style="font-size:13px;color:{T["text_secondary"]};margin:0 0 10px;">{detail}</p>' if detail else ''}
-                {f'<div>{tags_html}</div>' if tags_html else ''}
-            </div>
-            """, unsafe_allow_html=True)
+            detail_html = (
+                f'<p style="font-size:13px;color:{T["text_secondary"]};margin:0 0 10px;">{detail}</p>'
+                if detail else ''
+            )
+            tags_div_html = f'<div>{tags_html}</div>' if tags_html else ''
+            st.markdown(
+                f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;'
+                f'border-left:4px solid {T["danger"]};padding:16px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:8px;">'
+                f'<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;'
+                f'background:{badge_bg};color:{badge_fg};">{badge_label}</span>'
+                f'<span style="font-size:11px;color:{T["text_tertiary"]};background:{T["surface_raised"]};'
+                f'border-radius:4px;padding:3px 8px;font-family:monospace;">{esc(category)}</span>'
+                f'</div>'
+                f'<h3 style="font-size:16px;font-weight:600;margin:6px 0;color:{T["text_primary"]};">{issue_text}</h3>'
+                f'{detail_html}{tags_div_html}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     # ── 이상치 리스트 (목표 미달/초과 + 기타 이상치) ─────────────────
     low_ach = [a for a in anomalies if a.get("type") == "low_achievement"]
@@ -301,60 +313,53 @@ with tab_brief:
             pt = target_by_platform.get(platform, {})
             pct = pt.get("achievement_pct", 0)
             dot = get_store_color(platform)
-            st.markdown(f"""
-            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
-                        border-left:4px solid {T['danger']};padding:16px 18px;margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
-                    <div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T['text_primary']};">
-                        <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
-                        {esc(platform)}
-                    </div>
-                    <div style="flex:2;font-size:12.5px;color:{T['text_secondary']};">
-                        월 달성률 {pct}% · 기준(70%) 미달 · 일평균 {pt.get('daily_required', 0):,}원 필요
-                    </div>
-                    <div style="width:110px;height:6px;background:{T['surface_raised']};border-radius:3px;overflow:hidden;flex-shrink:0;">
-                        <div style="height:100%;border-radius:3px;background:{T['danger']};width:{min(pct,100)}%;"></div>
-                    </div>
-                    <div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T['danger']};">{pct}%</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;'
+                f'border-left:4px solid {T["danger"]};padding:16px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">'
+                f'<div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T["text_primary"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>'
+                f'{esc(platform)}</div>'
+                f'<div style="flex:2;font-size:12.5px;color:{T["text_secondary"]};">'
+                f'월 달성률 {pct}% · 기준(70%) 미달 · 일평균 {pt.get("daily_required", 0):,}원 필요</div>'
+                f'<div style="width:110px;height:6px;background:{T["surface_raised"]};border-radius:3px;overflow:hidden;flex-shrink:0;">'
+                f'<div style="height:100%;border-radius:3px;background:{T["danger"]};width:{min(pct,100)}%;"></div></div>'
+                f'<div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T["danger"]};">{pct}%</div>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
 
         for a in other_anoms:
             sev_color = T['danger'] if a.get("severity") == "warning" else T['text_secondary']
             dot = get_store_color(a.get("platform", ""))
-            st.markdown(f"""
-            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
-                        border-left:4px solid {sev_color};padding:14px 18px;margin-bottom:10px;">
-                <div style="display:flex;align-items:center;font-size:13px;color:{T['text_secondary']};">
-                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
-                    {esc(a.get('message', ''))}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;'
+                f'border-left:4px solid {sev_color};padding:14px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;align-items:center;font-size:13px;color:{T["text_secondary"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>'
+                f'{esc(a.get("message", ""))}</div></div>',
+                unsafe_allow_html=True,
+            )
 
         for pt in over_ach:
             platform = pt["platform"]
             dot = get_store_color(platform)
             pct = pt.get("achievement_pct", 0)
-            st.markdown(f"""
-            <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;
-                        border-left:4px solid {T['success']};padding:16px 18px;margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">
-                    <div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T['text_primary']};">
-                        <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>
-                        {esc(platform)} — 목표 초과 달성
-                    </div>
-                    <div style="flex:2;font-size:12.5px;color:{T['text_secondary']};">
-                        월 달성률 {pct}% · 잔여 목표 없음, 이례적 호실적
-                    </div>
-                    <div style="width:110px;height:6px;background:{T['surface_raised']};border-radius:3px;overflow:hidden;flex-shrink:0;">
-                        <div style="height:100%;border-radius:3px;background:{T['success']};width:100%;"></div>
-                    </div>
-                    <div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T['success']};">{pct}%</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;'
+                f'border-left:4px solid {T["success"]};padding:16px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;">'
+                f'<div style="flex:1;display:flex;align-items:center;font-size:14px;font-weight:600;color:{T["text_primary"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>'
+                f'{esc(platform)} — 목표 초과 달성</div>'
+                f'<div style="flex:2;font-size:12.5px;color:{T["text_secondary"]};">'
+                f'월 달성률 {pct}% · 잔여 목표 없음, 이례적 호실적</div>'
+                f'<div style="width:110px;height:6px;background:{T["surface_raised"]};border-radius:3px;overflow:hidden;flex-shrink:0;">'
+                f'<div style="height:100%;border-radius:3px;background:{T["success"]};width:100%;"></div></div>'
+                f'<div style="font-family:monospace;font-size:13px;font-weight:600;min-width:52px;text-align:right;color:{T["success"]};">{pct}%</div>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
 
     # ── 플랫폼별 매출 차트 ────────────────────────────────────────────
     def _build_bar_chart_html(records: list) -> str:
@@ -431,27 +436,23 @@ with tab_brief:
         is_cumulative = bool(kpi_cumulative and kpi_cumulative.get("by_platform"))
         basis_label = "월 누계 기준" if is_cumulative else "당일 기준"
 
-        if db_skipped_count > 0:
-            st.caption(f"ℹ️ 이미 저장된 데이터 {db_skipped_count}건 스킵 (중복 업로드)")
-
         total_pct = target_summary.get("total_achievement_pct", 0)
         color = T['success'] if total_pct >= 100 else (T['accent'] if total_pct >= 70 else T['danger'])
         daily_line = (
             f" · 당일 매출: {kpi_total.get('total_sales', 0):,}원" if is_cumulative else ""
         )
-        st.markdown(f"""
-        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:14px 18px;margin-bottom:10px;">
-            <div style="font-size:12px;color:{T['text_tertiary']};margin-bottom:4px;">
-                전체 달성률 — {target_summary.get('month', '')} ({basis_label})
-            </div>
-            <div style="font-size:24px;font-weight:700;color:{color};">{total_pct}%</div>
-            <div style="font-size:12px;color:{T['text_secondary']};margin-top:2px;">
-                월 누계: {target_summary.get('total_actual', 0):,} / {target_summary.get('total_target', 0):,}원{daily_line}
-                · 잔여 {target_summary.get('days_remaining', 0)}일
-                · 일평균 {target_summary.get('daily_required', 0):,}원 필요
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;padding:14px 18px;margin-bottom:10px;">'
+            f'<div style="font-size:12px;color:{T["text_tertiary"]};margin-bottom:4px;">'
+            f'전체 달성률 — {target_summary.get("month", "")} ({basis_label})</div>'
+            f'<div style="font-size:24px;font-weight:700;color:{color};">{total_pct}%</div>'
+            f'<div style="font-size:12px;color:{T["text_secondary"]};margin-top:2px;">'
+            f'월 누계: {target_summary.get("total_actual", 0):,} / {target_summary.get("total_target", 0):,}원{daily_line}'
+            f' · 잔여 {target_summary.get("days_remaining", 0)}일'
+            f' · 일평균 {target_summary.get("daily_required", 0):,}원 필요</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         rows_html = ""
         targeted_platforms = set()
@@ -461,48 +462,49 @@ with tab_brief:
             dot = get_store_color(pt["platform"])
             row_color = T['success'] if pct >= 100 else (T['danger'] if pt.get("flag") == "low_achievement" else T['text_primary'])
             fill_color = T['success'] if pct >= 100 else (T['danger'] if pt.get("flag") == "low_achievement" else T['accent'])
-            rows_html += f"""
-            <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T['line']};">
-                <div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T['text_primary']};">
-                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(pt['platform'])}
-                </div>
-                <div style="flex:1;height:8px;background:{T['surface_raised']};border-radius:4px;overflow:hidden;">
-                    <div style="height:100%;border-radius:4px;background:{fill_color};width:{min(pct,100)}%;"></div>
-                </div>
-                <div style="width:56px;text-align:right;font-family:monospace;font-size:13px;font-weight:600;flex-shrink:0;color:{row_color};">{pct}%</div>
-                <div style="width:190px;font-size:11px;color:{T['text_tertiary']};flex-shrink:0;text-align:right;">
-                    {'잔여 목표 없음' if pct >= 100 else f"일평균 {pt.get('daily_required', 0):,}원 필요"}
-                </div>
-            </div>"""
+            daily_req_txt = (
+                '잔여 목표 없음' if pct >= 100 else f"일평균 {pt.get('daily_required', 0):,}원 필요"
+            )
+            rows_html += (
+                f'<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T["line"]};">'
+                f'<div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T["text_primary"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(pt["platform"])}</div>'
+                f'<div style="flex:1;height:8px;background:{T["surface_raised"]};border-radius:4px;overflow:hidden;">'
+                f'<div style="height:100%;border-radius:4px;background:{fill_color};width:{min(pct,100)}%;"></div></div>'
+                f'<div style="width:56px;text-align:right;font-family:monospace;font-size:13px;font-weight:600;flex-shrink:0;color:{row_color};">{pct}%</div>'
+                f'<div style="width:190px;font-size:11px;color:{T["text_tertiary"]};flex-shrink:0;text-align:right;">{daily_req_txt}</div>'
+                f'</div>'
+            )
 
         for r in by_platform:
             if r["platform"] in targeted_platforms:
                 continue
             dot = get_store_color(r["platform"])
-            rows_html += f"""
-            <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T['line']};">
-                <div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T['text_primary']};">
-                    <span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(r['platform'])}
-                </div>
-                <div style="flex:1;height:8px;background:{T['surface_raised']};border-radius:4px;overflow:hidden;"></div>
-                <div style="width:56px;text-align:right;">
-                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:{T['surface_raised']};color:{T['text_secondary']};">미설정</span>
-                </div>
-                <div style="width:190px;"></div>
-            </div>"""
+            rows_html += (
+                f'<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid {T["line"]};">'
+                f'<div style="width:160px;font-size:13.5px;font-weight:500;flex-shrink:0;display:flex;align-items:center;color:{T["text_primary"]};">'
+                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot};display:inline-block;margin-right:7px;"></span>{esc(r["platform"])}</div>'
+                f'<div style="flex:1;height:8px;background:{T["surface_raised"]};border-radius:4px;overflow:hidden;"></div>'
+                f'<div style="width:56px;text-align:right;">'
+                f'<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:{T["surface_raised"]};color:{T["text_secondary"]};">미설정</span></div>'
+                f'<div style="width:190px;"></div>'
+                f'</div>'
+            )
 
-        st.markdown(f"""
-        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:6px 18px;margin-bottom:10px;">
-            {rows_html}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;padding:6px 18px;margin-bottom:10px;">'
+            f'{rows_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown(f"""
-        <div style="background:{T['surface']};border:1px solid {T['line']};border-radius:8px;padding:20px;text-align:center;margin-bottom:12px;">
-            <div style="font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:6px;">목표 미설정</div>
-            <div style="font-size:12.5px;color:{T['text_tertiary']};">이번 달 목표 매출을 입력하면 달성률을 확인할 수 있습니다.</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:{T["surface"]};border:1px solid {T["line"]};border-radius:8px;padding:20px;text-align:center;margin-bottom:12px;">'
+            f'<div style="font-size:14px;font-weight:600;color:{T["text_primary"]};margin-bottom:6px;">목표 미설정</div>'
+            f'<div style="font-size:12.5px;color:{T["text_tertiary"]};">이번 달 목표 매출을 입력하면 달성률을 확인할 수 있습니다.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         with st.form("quick_target_form"):
             st.caption("월 전체 타겟을 입력하세요 (플랫폼별 상세는 config.py에서 설정 가능)")
@@ -554,18 +556,19 @@ with tab_brief:
             else:
                 tag_bg, tag_fg = T['accent_soft'], T['accent']
 
-            st.markdown(f"""
-            <div style="display:flex;gap:14px;align-items:flex-start;background:{T['surface']};
-                        border:1px solid {T['line']};border-radius:8px;padding:14px 16px;margin-bottom:8px;">
-                <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:110px;">
-                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;
-                                background:{tag_bg};color:{tag_fg};text-align:center;">{esc(timing)}</span>
-                    <span style="font-size:11px;color:{T['text_tertiary']};background:{T['surface_raised']};
-                                border-radius:4px;padding:3px 8px;font-family:monospace;text-align:center;">{esc(a.get('owner', ''))}</span>
-                </div>
-                <div style="font-size:13.5px;line-height:1.55;color:{T['text_primary']};">{esc(a.get('action', ''))}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="display:flex;gap:14px;align-items:flex-start;background:{T["surface"]};'
+                f'border:1px solid {T["line"]};border-radius:8px;padding:14px 16px;margin-bottom:8px;">'
+                f'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:110px;">'
+                f'<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;'
+                f'background:{tag_bg};color:{tag_fg};text-align:center;">{esc(timing)}</span>'
+                f'<span style="font-size:11px;color:{T["text_tertiary"]};background:{T["surface_raised"]};'
+                f'border-radius:4px;padding:3px 8px;font-family:monospace;text-align:center;">{esc(a.get("owner", ""))}</span>'
+                f'</div>'
+                f'<div style="font-size:13.5px;line-height:1.55;color:{T["text_primary"]};">{esc(a.get("action", ""))}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     # ── AI 코멘터리 ───────────────────────────────────────────────────
     llm_commentary = state.get("llm_commentary", "")
