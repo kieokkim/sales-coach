@@ -154,6 +154,29 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
   보여주는 보조자료라는 위계를 화면순서로 표현. 섹션 내용 자체는
   무변경, 순서만 이동.
 
+- **2026-07-29(4) 세션: 추이 분석 탭 3건 수정.** ① 채널별 매출 추이
+  라인차트가 밀리초 단위 x축으로 깨져 보이던 버그 — 원인은
+  preprocess_nodes.py의 `_preprocess_offline`/`_preprocess_online`이
+  항상 report_date 하나로 `df[df["판매일자"]==target]` 필터링하기 때문에
+  offline_processed/online_processed가 구조적으로 항상 1일치뿐이라,
+  Plotly가 x값이 1개뿐인 degenerate range에서 tick 포맷을 최고정밀(ms)로
+  떨어뜨리는 것으로 확인. 이 파이프라인에서 ts는 항상 1일치뿐이므로
+  차트를 억지로 그리는 대신 "N일치 데이터만 있어 추이 차트를 그릴 수
+  없습니다(최소 2일 이상 필요)" 안내문으로 대체(unique_days<2 가드).
+  ② 플랫폼별 매출 비중 파이차트에 get_store_color 적용 — 현재 합성
+  데이터엔 지역 키워드가 없어 전부 동일 회색이 되므로, 그 경우
+  text_tertiary~text_primary 사이를 플랫폼 수만큼 등분하는 `_gray_ramp()`
+  신규 로컬 헬퍼(pages/3_report.py 안, utils/ui_style.py는 무변경)로
+  대체해 개수와 무관하게 겹치지 않는 회색조로 구분. ③ 중분류별/제품별
+  매출 TOP10 바차트 색상(파랑/초록 — T['success']는 의미상 '성공'용이라
+  랭킹바에 부적절)을 둘 다 T['accent']로 통일.
+  검증: Playwright(npm 로컬 캐시, 프로젝트 의존성 미추가)로
+  sample_offline_3months.xlsx/sample_online_3months.xlsx 업로드→0518
+  리포트 생성까지 실브라우저 풀플로우로 구동 — 브리핑탭 섹션 순서
+  확정(오늘 할 일이 이상치 바로 다음, 차트 두 개는 그 아래), 추이탭
+  안내문 정상 표시(라인차트 없음)/파이차트 6개 플랫폼 전부 다른 명도로
+  구분/중분류·제품 TOP10 둘 다 동일 블루로 렌더 스크린샷 확인.
+
 ## 다음 과제 (2026-07-24, 취업 우선 전환 — 최우선순위)
 1. **백필 스크립트 결과 확인** — scripts/backfill_channel.py 실행결과
    (오프라인 273/온라인 275) 최종 사실확인 및 문서화.
@@ -215,14 +238,16 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: 취업 우선 전환 — 3순위 "목업 기반 프론트 실구현"의 후속 버그수정.
-- 만질 파일: pages/3_report.py(HTML-텍스트-노출 버그 수정 + 스킵배너 위치
-  이동), CLAUDE.md(현재상태/다음과제 갱신). utils/ui_style.py·utils/styles.py는
-  스코프 밖(무변경).
-- 완료: 버그 원인 확인(CommonMark 들여쓰기 규칙) + 파일 전체 동일 패턴
-  일괄 재작성 + 배너 위치 이동 + Playwright 실브라우저 검증(0501/0518
-  스크린샷) + 커밋. 위 "현재 상태" 2026-07-29(2) 항목 참조.
-- 부수 발견(미수정, 다음 세션 후보과제로 이동): 라이트모드 저대비 버그.
-  위 "다음 과제(기존)" 참조.
-- db.py의 monthly_target 테이블 제거 diff는 이번 세션과 무관한 별개
-  WIP로 그대로 미커밋 방치 — 다음 세션에서 분리 검토.
+- 트랙: 취업 우선 전환 — 3순위 "목업 기반 프론트 실구현"의 후속 UX 정리
+  (Decision 34 기록 + 브리핑탭 순서 재배치 + 추이탭 3건 수정).
+- 만질 파일: DECISION_LOG.md(Decision 34 신규), pages/3_report.py(브리핑탭
+  섹션 순서 재배치 + 추이탭 밀리초축/회색파이/TOP10 색상 수정),
+  CLAUDE.md(현재상태/세션스코프 갱신). utils/ui_style.py·utils/styles.py는
+  스코프 밖(무변경) — 회색조 생성(_gray_ramp)은 이 페이지 전용 표시로직이라
+  utils/가 아닌 pages/3_report.py 안에 로컬 헬퍼로 추가.
+- 완료: 전부 완료. Decision 34 기록, 브리핑탭 순서 재배치, 추이탭 3건
+  수정, Playwright 실브라우저 검증(0518), 커밋 3건(docs/refactor/fix)
+  분리 완료. 위 "현재 상태" 2026-07-29(3)/(4) 항목 참조.
+- 부수 발견: 없음.
+- db.py의 monthly_target 테이블 제거 diff는 이번 세션과도 무관한 별개
+  WIP로 그대로 미커밋 방치 — 다음 세션에서 분리 검토(누적 이월).

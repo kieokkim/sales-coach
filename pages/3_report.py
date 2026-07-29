@@ -55,6 +55,23 @@ if "report_theme" not in st.session_state:
 T = get_theme(st.session_state["report_theme"])
 
 
+def _gray_ramp(theme: dict, n: int) -> list:
+    """지역 키워드 무매칭으로 get_store_color가 전부 동일 회색일 때 파이차트용 대체.
+    text_tertiary~text_primary 사이(둘 다 각 테마에서 이미 배경과 대비되는 무채색)를
+    n개로 등분해 개수와 무관하게 겹치지 않는 회색조를 만든다."""
+    def _to_rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    c1, c2 = _to_rgb(theme["text_tertiary"]), _to_rgb(theme["text_primary"])
+    if n <= 1:
+        return [theme["text_tertiary"]]
+    return [
+        "#%02X%02X%02X" % tuple(round(c1[i] + (c2[i] - c1[i]) * k / (n - 1)) for i in range(3))
+        for k in range(n)
+    ]
+
+
 def _prepare_time_series(offline_df, online_df):
     dfs = []
     if offline_df is not None and not getattr(offline_df, "empty", True):
@@ -595,23 +612,29 @@ with tab_trend:
     else:
         st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>채널별 매출 추이</div>",
                     unsafe_allow_html=True)
-        period_opt = st.radio("집계 단위", ["일별", "주별", "월별"], horizontal=True, key="ts_period")
-        period_col = {"일별": "판매일자", "주별": "주", "월별": "월"}[period_opt]
 
-        grp = ts.groupby([period_col, "채널"], as_index=False)["매출"].sum()
-        fig1 = px.line(
-            grp, x=period_col, y="매출", color="채널",
-            color_discrete_map={"오프라인": T['accent'], "온라인": T['gray_2']},
-            template=plotly_template,
-        )
-        fig1.update_layout(
-            paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
-            margin=dict(l=0, r=0, t=20, b=0),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        fig1.update_yaxes(showgrid=True, gridcolor=GRID, tickformat=",")
-        fig1.update_xaxes(showgrid=False)
-        st.plotly_chart(fig1, use_container_width=True)
+        unique_days = ts["판매일자"].dt.normalize().nunique()
+        if unique_days < 2:
+            st.info(f"현재 {unique_days}일치 데이터만 있어 추이 차트를 그릴 수 없습니다. "
+                    "리포트를 여러 날짜에 걸쳐 생성하면(최소 2일 이상) 이 차트가 표시됩니다.")
+        else:
+            period_opt = st.radio("집계 단위", ["일별", "주별", "월별"], horizontal=True, key="ts_period")
+            period_col = {"일별": "판매일자", "주별": "주", "월별": "월"}[period_opt]
+
+            grp = ts.groupby([period_col, "채널"], as_index=False)["매출"].sum()
+            fig1 = px.line(
+                grp, x=period_col, y="매출", color="채널",
+                color_discrete_map={"오프라인": T['accent'], "온라인": T['gray_2']},
+                template=plotly_template,
+            )
+            fig1.update_layout(
+                paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
+                margin=dict(l=0, r=0, t=20, b=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            fig1.update_yaxes(showgrid=True, gridcolor=GRID, tickformat=",")
+            fig1.update_xaxes(showgrid=False)
+            st.plotly_chart(fig1, use_container_width=True)
 
         col_c1, col_c2 = st.columns(2)
 
@@ -619,11 +642,17 @@ with tab_trend:
             st.markdown(f"<div style='font-size:14px;font-weight:600;color:{T['text_primary']};margin-bottom:8px;'>플랫폼별 매출 비중</div>",
                         unsafe_allow_html=True)
             if by_platform:
+                pie_colors = [get_store_color(r["platform"]) for r in by_platform]
+                if len(set(pie_colors)) <= 1:
+                    # 지역 키워드 무매칭 시 get_store_color가 전부 동일 회색을 반환 —
+                    # 파이차트는 인접 조각이 구분 안 되므로 text_tertiary~text_primary
+                    # 사이를 플랫폼 수만큼 등분한 회색조로 대체(개수와 무관하게 안 겹침).
+                    pie_colors = _gray_ramp(T, len(by_platform))
                 fig2 = px.pie(
                     values=[r["total_sales"] for r in by_platform],
                     names=[r["platform"] for r in by_platform],
                     template=plotly_template,
-                    color_discrete_sequence=[get_store_color(r["platform"]) for r in by_platform],
+                    color_discrete_sequence=pie_colors,
                 )
                 fig2.update_layout(paper_bgcolor=PAPER_BG, margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig2, use_container_width=True)
@@ -664,7 +693,7 @@ with tab_trend:
                 y=[p["product_name"] for p in top10],
                 orientation="h",
                 template=plotly_template,
-                color_discrete_sequence=[T['success']],
+                color_discrete_sequence=[T['accent']],
             )
             fig4.update_layout(paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG, margin=dict(l=0, r=0, t=20, b=0), height=360)
             fig4.update_xaxes(tickformat=",", showgrid=True, gridcolor=GRID)
