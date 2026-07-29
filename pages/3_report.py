@@ -361,6 +361,35 @@ with tab_brief:
                 unsafe_allow_html=True,
             )
 
+    # ── 오늘 할 일 ────────────────────────────────────────────────────
+    if actions:
+        st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
+                     f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
+                     f"오늘 할 일</div>", unsafe_allow_html=True)
+
+        for a in actions:
+            timing = a.get("timing", "")
+            if "오늘" in timing:
+                tag_bg, tag_fg = T['danger_soft'], T['danger']
+            elif "주" in timing:
+                tag_bg, tag_fg = T['surface_raised'], T['text_secondary']
+            else:
+                tag_bg, tag_fg = T['accent_soft'], T['accent']
+
+            st.markdown(
+                f'<div style="display:flex;gap:14px;align-items:flex-start;background:{T["surface"]};'
+                f'border:1px solid {T["line"]};border-radius:8px;padding:14px 16px;margin-bottom:8px;">'
+                f'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:110px;">'
+                f'<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;'
+                f'background:{tag_bg};color:{tag_fg};text-align:center;">{esc(timing)}</span>'
+                f'<span style="font-size:11px;color:{T["text_tertiary"]};background:{T["surface_raised"]};'
+                f'border-radius:4px;padding:3px 8px;font-family:monospace;text-align:center;">{esc(a.get("owner", ""))}</span>'
+                f'</div>'
+                f'<div style="font-size:13.5px;line-height:1.55;color:{T["text_primary"]};">{esc(a.get("action", ""))}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
     # ── 플랫폼별 매출 차트 ────────────────────────────────────────────
     def _build_bar_chart_html(records: list) -> str:
         if not records:
@@ -540,35 +569,6 @@ with tab_brief:
             }
             st.session_state["result_state"] = {**state, "target_summary": computed_target}
             st.rerun()
-
-    # ── 오늘 할 일 ────────────────────────────────────────────────────
-    if actions:
-        st.markdown(f"<div style='font-size:14px;font-weight:600;text-transform:uppercase;"
-                     f"letter-spacing:.05em;color:{T['text_secondary']};margin:24px 0 10px;'>"
-                     f"오늘 할 일</div>", unsafe_allow_html=True)
-
-        for a in actions:
-            timing = a.get("timing", "")
-            if "오늘" in timing:
-                tag_bg, tag_fg = T['danger_soft'], T['danger']
-            elif "주" in timing:
-                tag_bg, tag_fg = T['surface_raised'], T['text_secondary']
-            else:
-                tag_bg, tag_fg = T['accent_soft'], T['accent']
-
-            st.markdown(
-                f'<div style="display:flex;gap:14px;align-items:flex-start;background:{T["surface"]};'
-                f'border:1px solid {T["line"]};border-radius:8px;padding:14px 16px;margin-bottom:8px;">'
-                f'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:110px;">'
-                f'<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;'
-                f'background:{tag_bg};color:{tag_fg};text-align:center;">{esc(timing)}</span>'
-                f'<span style="font-size:11px;color:{T["text_tertiary"]};background:{T["surface_raised"]};'
-                f'border-radius:4px;padding:3px 8px;font-family:monospace;text-align:center;">{esc(a.get("owner", ""))}</span>'
-                f'</div>'
-                f'<div style="font-size:13.5px;line-height:1.55;color:{T["text_primary"]};">{esc(a.get("action", ""))}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
 
     # ── AI 코멘터리 ───────────────────────────────────────────────────
     llm_commentary = state.get("llm_commentary", "")
