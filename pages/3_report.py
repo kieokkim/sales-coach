@@ -9,6 +9,8 @@ import plotly.express as px
 from dotenv import load_dotenv
 
 from config import LLM_MODEL
+from utils.demo import render_demo_banner
+from utils.env import is_demo_mode
 from utils.styles import inject_global_css, render_sidebar_brand
 from utils.ui_style import get_store_color, get_theme
 
@@ -18,6 +20,9 @@ st.set_page_config(page_title="SalesCoach — 리포트", page_icon="📊", layo
 
 inject_global_css()
 render_sidebar_brand()
+
+if is_demo_mode():
+    render_demo_banner()
 
 if "result_state" not in st.session_state:
     st.warning("리포트 결과가 없습니다. 파일을 먼저 업로드하세요.")

@@ -6,6 +6,8 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
+from utils.demo import render_demo_banner
+from utils.env import is_demo_mode
 from utils.styles import inject_global_css, render_sidebar_brand
 
 load_dotenv()
@@ -14,6 +16,9 @@ st.set_page_config(page_title="SalesCoach — 파일 업로드", page_icon="📤
 
 inject_global_css()
 render_sidebar_brand()
+
+if is_demo_mode():
+    render_demo_banner()
 
 st.markdown("""
 <div style="margin-bottom:24px;">

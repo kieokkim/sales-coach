@@ -1,5 +1,7 @@
 import streamlit as st
 from db import init_db
+from utils.demo import ensure_demo_data
+from utils.env import is_demo_mode
 
 st.set_page_config(
     page_title="SalesCoach",
@@ -9,4 +11,6 @@ st.set_page_config(
 )
 
 init_db()
+if is_demo_mode():
+    ensure_demo_data()
 st.switch_page("pages/1_upload.py")
