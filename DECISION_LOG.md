@@ -32,6 +32,79 @@
 
 ---
 
+### Decision 36: 배포 아키텍처 확정 — 코드베이스 단일화 + 환경변수 분기(데모/파일럿)
+
+**배경:** 배포 착수. 데모(합성 91일 데이터, 공개)와 파일럿(헬리녹스
+실데이터, 나중)을 어디에 어떻게 올릴지 결정해야 한다.
+
+**결정:** 브랜치를 나누지 않고 코드베이스 하나를 유지, 환경변수로
+두 배포를 분기한다. 데모는 Streamlit Community Cloud + 합성 데이터,
+파일럿은 나중에 Render + 영구디스크 + 실데이터. 브랜치를 안 쓰는 이유는
+버그 수정을 두 벌에 각각 적용해야 하고, 시간이 지나면 반드시 어긋나기
+때문이다.
+
+**조사 결과:**
+1. **DB_PATH:** db.py의 `DB_PATH = Path(__file__).parent / "salescoach.db"`는
+   하드코딩된 상대경로, 환경변수 오버라이드 없음. `os.getenv("DB_PATH", ...)`
+   형태로 바꾸면 로컬 기본값을 유지하면서 배포 시 경로를 분리할 수 있는
+   구조로 확인.
+2. **requirements.txt vs pyproject.toml:** pyproject.toml엔 plotly만
+   선언(게다가 `>=6.8.0`, requirements.txt는 `>=5.0.0`으로 버전도 다름),
+   실제 8개 의존성(langgraph/langchain-openai/streamlit/pandas/openpyxl/
+   jinja2/python-dotenv/plotly)은 requirements.txt에만 있음. Streamlit
+   Community Cloud 공식 문서로 확인한 탐색 우선순위는
+   `uv.lock > Pipfile > environment.yml > requirements.txt > pyproject.toml`
+   (entrypoint 디렉토리 우선, 그다음 리포 루트) — **requirements.txt가
+   있으면 pyproject.toml은 무시**된다. 즉 이 불일치 자체는 배포 실패로
+   직결되지 않음(requirements.txt가 이미 전체 의존성을 정확히 담고
+   있고 실제 사용됨 확인). 다만 pyproject.toml은 죽은 설정이라 다음에
+   보는 사람이 착각하기 쉬워 정리 대상. pyproject.toml의
+   `requires-python>=3.13`도 같은 이유로 Cloud에 전달되지 않으므로
+   Python 버전은 Cloud 앱 설정(advanced settings)에서 별도로 맞춰야 함
+   — 배포 체크리스트 항목으로 기록.
+3. **secrets → 환경변수:** Streamlit Community Cloud의 secrets.toml은
+   최상위(섹션 없는) 키만 `os.environ`에 자동 노출된다(named section은
+   `st.secrets`로만 접근 가능). 코드가 전부 `os.getenv()`를 쓰고 있으므로
+   OPENAI_API_KEY/DB_PATH/DEMO_MODE를 Cloud 설정에 넣을 때 반드시
+   최상위(언네임드 섹션)에 넣어야 함 — 다음 배포 세션 체크리스트.
+
+**도입할 환경변수 2개(다음 세션 구현 대상, 이번엔 미구현):**
+- `DB_PATH`: SQLite 경로 오버라이드, 없으면 현재 로컬 경로가 기본값
+  (로컬 개발 흐름 무변화).
+- `DEMO_MODE`: true일 때 데모 전용 동작으로 분기.
+  - DB가 비어 있으면 부팅 시 `scripts/seed_db.py`의 `seed()`를 호출해
+    합성 91일 데이터를 자동 적재(멱등 확인됨, LLM 호출 없음 — 순수
+    pandas/rule 연산이라 부팅 지연·비용 리스크 없음). Streamlit Cloud는
+    파일 영속성을 보장하지 않아 재시작마다 DB가 날아갈 수 있는데, 데모는
+    합성 데이터만 쓰므로 매번 다시 채우면 충분함.
+  - 화면 상단에 "합성 샘플 데이터로 동작하는 데모" 배너 표시.
+
+**왜 데모=Streamlit Cloud, 파일럿=Render인가:** Streamlit Cloud는 로컬
+파일 영속성을 공식적으로 보장하지 않는다 — 이게 실데이터 파일럿에는
+부적합한 이유지만, 합성 데이터만 쓰는 데모에는 영속성이 무의미하므로
+오히려 적합한 조건이 된다. 파일럿은 반대로 영속성이 필수라 영구디스크를
+붙일 수 있는 Render를 쓴다.
+
+**설계원칙 변경 — 반드시 재설명 필요:** 지금까지 "로컬 SQLite로 매출
+데이터를 외부에 전송하지 않는다"가 설계 원칙이었다. 배포하는 순간부터
+이 원칙은 더 이상 사실이 아니다. 파일럿 사용자에게는 "개인 계정 서버에만
+올라가고, 비밀번호로 잠겨 있고, 파일럿 종료 후 삭제한다"는 식으로
+정확하게 다시 설명해야 한다. 이건 문서 정정이 아니라 사용자에게 실제로
+전달해야 하는 내용.
+
+**LLM 비용 보호:** 이번 세션은 방안 제안까지만, 구현은 승인 후.
+pages/1_upload.py(리포트당 3회 LLM 호출: insight/action/commentary,
+gpt-4o-mini, 호출당 ≤1500 tokens) 와 pages/4_chat.py(자유형식 채팅,
+호출 수 무제한) 둘 다 인증 없이 공개되므로 반복 악용 시 비용이 쌓일 수
+있음. 현재 코드베이스에 rate limit이 전혀 없음을 확인.
+
+**범위:** 이번 세션은 데모 배포 준비까지만(조사+설계결정, 코드 변경
+없음). Render 전용 작업(영구디스크 설정, 관리자 백필 페이지)은 실데이터
+도착 시 별도 세션에서. 위 환경변수 도입/DEMO_MODE 구현/LLM 비용보호
+구현은 전부 승인 후 다음 단계.
+
+---
+
 ### Decision 35: 관계 모델링 공백의 재인식
 
 **배경:** 리테일 온톨로지 개념을 확인하는 과정에서, 이미 백로그에 따로
