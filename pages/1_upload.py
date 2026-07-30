@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from utils.auth import require_password
 from utils.demo import render_demo_banner
 from utils.env import is_demo_mode
+from utils.ratelimit import check_and_record_report_generation
 from utils.styles import inject_global_css, render_sidebar_brand
 
 load_dotenv()
@@ -121,6 +122,10 @@ if not uploaded_files:
     st.info("오프라인 거래 파일을 최소 1개 업로드하면 리포트 생성이 활성화됩니다.")
 elif not offline_dfs and not unrecognized:
     st.info("오프라인 거래 파일이 없습니다. 최소 1개 필요합니다(온라인은 선택).")
+
+if run_btn and offline_ready and not check_and_record_report_generation():
+    st.error("시간당 리포트 생성 한도(5건)를 초과했습니다. 잠시 후 다시 시도해주세요.")
+    st.stop()
 
 if run_btn and offline_ready:
     offline_combined = pd.concat(offline_dfs, ignore_index=True)
