@@ -103,6 +103,33 @@ gpt-4o-mini, 호출당 ≤1500 tokens) 와 pages/4_chat.py(자유형식 채팅,
 도착 시 별도 세션에서. 위 환경변수 도입/DEMO_MODE 구현/LLM 비용보호
 구현은 전부 승인 후 다음 단계.
 
+**후속(2026-07-30, 구현 세션):** 위에서 승인 대기로 남겨둔 항목 전부
+구현 완료 — DB_PATH 환경변수(db.py), DEMO_MODE 헬퍼+자동시딩+데모배너+
+채팅 비활성화(utils/env.py, utils/demo.py, pages/4_chat.py), 비밀번호
+게이트(utils/auth.py, 전 페이지), 세션당 리포트 생성 속도제한 시간당
+5건(utils/ratelimit.py). feat 커밋 4건으로 기능별 분리, Playwright
+실측 검증(빈 DB 자동시딩 210건/차단 문구/채팅 비활성화 화면/비밀번호
+오답정답 플로우) + ratelimit 단위검증. 상세는 CLAUDE.md "현재 상태"
+2026-07-30 항목 참조.
+
+같은 세션에서 pyproject.toml/requirements.txt 정리 작업 중 **더
+심각한 배포 위험을 하나 더 발견**: 리포에 `uv.lock`이 존재하는데(내용은
+plotly와 그 transitive dep 2개뿐, 원래 완전한 프로젝트가 아니었음),
+Streamlit Community Cloud의 의존성 파일 탐색 우선순위는
+`uv.lock > Pipfile > environment.yml > requirements.txt > pyproject.toml`
+— **uv.lock이 requirements.txt보다 먼저 선택된다.** 즉 이전 조사에서
+"requirements.txt가 실제 사용되니 배포 실패로 직결 안 됨"이라고 판정한
+결론은 uv.lock의 존재를 놓친 채 내려진 것이었고, uv.lock이 그대로
+있었다면 배포 시 streamlit 자체도 설치 안 된 채로 부팅 시도해 100%
+실패했을 것. README.md가 실제로 문서화한 설치법은 `uv venv` +
+`uv pip install -r requirements.txt`(uv를 pip 대체품으로만 씀)이지
+`uv sync`/`pyproject.toml` 기반이 아니어서, pyproject.toml/uv.lock은
+애초에 실제 워크플로우에 쓰인 적 없는 유물이었던 것으로 판단—
+requirements.txt를 유일한 의존성 파일로 남기고 **pyproject.toml과
+uv.lock 둘 다 삭제**. README의 `uv run`/`uv pip install` 안내는 uv가
+pyproject.toml 없이도(가상환경 pip 대체 용도로) 동작하는 사용법이라
+무변경.
+
 ---
 
 ### Decision 35: 관계 모델링 공백의 재인식

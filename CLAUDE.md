@@ -216,6 +216,19 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
   실제 배포 실행 자체(secrets 설정 UI에서 top-level 키로 입력 필요 —
   Decision 36 조사사항), pyproject.toml 정리, Render 파일럿 준비.
 
+- **2026-07-30(2) 세션: pyproject.toml/uv.lock 삭제 — 더 심각한 배포
+  위험 발견.** pyproject.toml 정리 작업 중 리포에 uv.lock이 있다는 걸
+  발견(내용은 plotly류 3개뿐). Streamlit Cloud 의존성 탐색 우선순위가
+  `uv.lock > ... > requirements.txt > pyproject.toml`라서 uv.lock이
+  requirements.txt보다 먼저 선택됨 — 있었다면 streamlit 자체도 설치
+  안 된 채 배포가 100% 실패했을 것(이전 조사에선 uv.lock 존재를 놓쳐
+  "배포 실패로 직결 안 됨"이라 잘못 판정했던 것). README.md가 실제
+  문서화한 설치법(`uv venv`+`uv pip install -r requirements.txt`)은
+  pyproject.toml/uv.lock 없이도 동작 확인(`uv run python -c "import
+  streamlit..."` 성공) — 애초에 실사용 안 된 유물로 판단해 pyproject.toml/
+  uv.lock 둘 다 삭제, requirements.txt 단일 의존성 파일로 정리.
+  DECISION_LOG.md Decision 36에 후속 기록.
+
 ## 다음 과제 (2026-07-24, 취업 우선 전환 — 최우선순위)
 1. **백필 스크립트 결과 확인** — scripts/backfill_channel.py 실행결과
    (오프라인 273/온라인 275) 최종 사실확인 및 문서화.
