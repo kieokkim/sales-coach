@@ -177,6 +177,45 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
   안내문 정상 표시(라인차트 없음)/파이차트 6개 플랫폼 전부 다른 명도로
   구분/중분류·제품 TOP10 둘 다 동일 블루로 렌더 스크린샷 확인.
 
+- **2026-07-30 세션: 배포 준비(Decision 36 구현) — 데모모드 4종 완료.**
+  Decision 36에서 승인받은 범위 전부 구현, 코드 변경 없이 조사만 했던
+  전 세션과 달리 이번엔 실제 커밋 4건(feat 4개, 기능별 분리):
+  ① `db.py` DB_PATH를 `os.getenv("DB_PATH", 기존경로)`로 — 환경변수
+  없으면 로컬 흐름 그대로.
+  ② `utils/env.py` 신규 — `get_bool_env()`(문자열 "true"/"1"/"yes"만
+  참, 값 없으면 default) + `is_demo_mode()`. `utils/demo.py` 신규 —
+  `ensure_demo_data()`(daily_kpi 비어있을 때만 `scripts/seed_db.seed()`
+  호출, 이미 있으면 스킵 — seed()는 이미 임포트 가능한 함수였어서
+  리팩토링 불필요했음) + `render_demo_banner()`. streamlit_app.py 부팅
+  시 DEMO_MODE면 자동시딩, pages/1_upload.py·3_report.py 상단에 배너.
+  pages/4_chat.py는 DEMO_MODE일 때 실제 입력창/LLM 호출을 막고 대신
+  "자연어→SQL, SELECT 화이트리스트 가드, 답변불가 감지" 기능 설명
+  화면으로 대체(페이지 자체는 유지).
+  ③ `utils/auth.py` 신규 — `require_password()`. streamlit_app.py +
+  pages/1~4 전부 `st.set_page_config` 직후에서 호출, 실패 시
+  `st.stop()`. DEMO_MODE면 우회. APP_PASSWORD 미설정+DEMO_MODE 거짓이면
+  안전한 쪽(차단)으로 동작.
+  ④ `utils/ratelimit.py` 신규 — `check_and_record_report_generation()`,
+  session_state 타임스탬프 리스트로 시간당 5건 초과 시 거부.
+  pages/1_upload.py "리포트 생성" 클릭 시점에 호출.
+  검증: pytest 34개 전체 회귀 없음(판정로직 무변경이라 eval 불필요).
+  Playwright로 4가지 시나리오 실측 — (a) APP_PASSWORD/DEMO_MODE 둘 다
+  미설정 시 기본 차단 문구 노출 확인, (b) DEMO_MODE=true로 새로 띄운
+  서버에서 완전히 빈 DB_PATH(/tmp)에 루트 접속 → daily_kpi 0건→210건
+  자동 시딩 확인 + 배너/업로드 화면 정상 렌더, (c) DEMO_MODE=true에서
+  /chat 직접 접근 시 입력창 없이 기능설명 화면만 노출 확인, (d)
+  APP_PASSWORD 설정 후 오답→에러, 정답→통과 후 세션유지 확인.
+  `check_and_record_report_generation()`은 실제 스트림릿 세션 대신
+  session_state를 dict로 모킹한 단위 스크립트로 6연속 호출 시
+  [T,T,T,T,T,F] 및 1시간 경과 후 재통과를 확인(LLM 호출이 딸린 실제
+  리포트 생성을 6번 돌려 API 비용을 태우지 않기 위한 판단).
+  로컬 개발 영향: APP_PASSWORD/DEMO_MODE 둘 다 없으면 이제 로컬에서도
+  기본 차단됨(의도된 동작) — 로컬 dev server는 이후 `DEMO_MODE=true`로
+  띄우는 것을 기본값으로 함.
+  **다음 세션 스코프 밖(승인 대기):** Streamlit Community Cloud에
+  실제 배포 실행 자체(secrets 설정 UI에서 top-level 키로 입력 필요 —
+  Decision 36 조사사항), pyproject.toml 정리, Render 파일럿 준비.
+
 ## 다음 과제 (2026-07-24, 취업 우선 전환 — 최우선순위)
 1. **백필 스크립트 결과 확인** — scripts/backfill_channel.py 실행결과
    (오프라인 273/온라인 275) 최종 사실확인 및 문서화.
@@ -238,16 +277,28 @@ DECISION_LOG.md에 있지만 그건 Claude 웹/포트폴리오용 아카이브�
 - COMPANY_PROFILE.md, PERSONA.md
 
 ## 이번 세션 스코프 (매 세션 시작 시 채울 것)
-- 트랙: 취업 우선 전환 — 3순위 "목업 기반 프론트 실구현"의 후속 UX 정리
-  (Decision 34 기록 + 브리핑탭 순서 재배치 + 추이탭 3건 수정).
-- 만질 파일: DECISION_LOG.md(Decision 34 신규), pages/3_report.py(브리핑탭
-  섹션 순서 재배치 + 추이탭 밀리초축/회색파이/TOP10 색상 수정),
-  CLAUDE.md(현재상태/세션스코프 갱신). utils/ui_style.py·utils/styles.py는
-  스코프 밖(무변경) — 회색조 생성(_gray_ramp)은 이 페이지 전용 표시로직이라
-  utils/가 아닌 pages/3_report.py 안에 로컬 헬퍼로 추가.
-- 완료: 전부 완료. Decision 34 기록, 브리핑탭 순서 재배치, 추이탭 3건
-  수정, Playwright 실브라우저 검증(0518), 커밋 3건(docs/refactor/fix)
-  분리 완료. 위 "현재 상태" 2026-07-29(3)/(4) 항목 참조.
-- 부수 발견: 없음.
+- 트랙: 배포 준비 — Decision 36 승인 범위 구현(단일 코드베이스 +
+  환경변수 분기, 데모모드까지).
+- 만질 파일: db.py:1-11(DB_PATH), utils/env.py·utils/demo.py·
+  utils/auth.py·utils/ratelimit.py(전부 신규), streamlit_app.py +
+  pages/1_upload.py·2_loading.py·3_report.py·4_chat.py(각 파일 상단
+  게이트/배너 호출 삽입, 페이지 본문 로직은 4_chat.py의 DEMO_MODE
+  분기 외엔 무변경), DECISION_LOG.md(Decision 36, 조사 세션에 이미
+  기록됨), CLAUDE.md(현재상태/세션스코프 갱신).
+- 완료: 전부 완료. DB_PATH 환경변수, DEMO_MODE 헬퍼+자동시딩+배너+채팅
+  비활성화, 비밀번호 게이트, 세션당 리포트 생성 속도제한(시간당 5건)
+  — feat 커밋 4건으로 기능별 분리. 위 "현재 상태" 2026-07-30 항목 참조.
+- 부수 발견: 없음. (로컬 dev 영향 있음 — 위 2026-07-30 항목의 "로컬
+  개발 영향" 참조, 이후 로컬은 DEMO_MODE=true로 띄우는 걸 기본으로.)
+- Streamlit Cloud 실배포 실행/pyproject.toml 정리/Render 파일럿 준비는
+  전부 승인 대기, 이번 세션 스코프 밖.
 - db.py의 monthly_target 테이블 제거 diff는 이번 세션과도 무관한 별개
   WIP로 그대로 미커밋 방치 — 다음 세션에서 분리 검토(누적 이월).
+
+  ## 모델 라우팅 (토큰 최적화용)
+- 기본값: Sonnet. 코드 수정/버그픽스/리팩토링/eval 실행 등 대부분 작업.
+- Opus 전환: 아키텍처 판단, 원인 미궁 상태, 설계 자체를 다시 짜야 하는 순간만.
+  세션 시작 시 /model opus, 끝나면 /model sonnet으로 복귀.
+- Haiku 전환: DEVLOG/DECISION_LOG 정리, 커밋 메시지, 포맷팅류.
+- 판단 기준: "이 작업이 새 판단을 요구하는가, 정해진 패턴 적용인가?"
+  후자면 Sonnet 이하로 충분.
