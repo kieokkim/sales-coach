@@ -4,6 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from nodes.qa_nodes import answer_question
+from utils.auth import require_password
 from utils.demo import render_demo_banner
 from utils.env import is_demo_mode
 from utils.styles import inject_global_css, render_sidebar_brand
@@ -11,6 +12,9 @@ from utils.styles import inject_global_css, render_sidebar_brand
 load_dotenv()
 
 st.set_page_config(page_title="SalesCoach — 데이터 질의", page_icon="💬", layout="wide")
+
+if not require_password():
+    st.stop()
 
 inject_global_css()
 render_sidebar_brand()

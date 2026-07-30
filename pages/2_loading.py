@@ -4,11 +4,15 @@ import time
 import streamlit as st
 from dotenv import load_dotenv
 
+from utils.auth import require_password
 from utils.styles import inject_global_css, render_sidebar_brand
 
 load_dotenv()
 
 st.set_page_config(page_title="SalesCoach — 분석 중", page_icon="⏳", layout="wide")
+
+if not require_password():
+    st.stop()
 
 inject_global_css()
 render_sidebar_brand()

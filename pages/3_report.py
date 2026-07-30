@@ -9,6 +9,7 @@ import plotly.express as px
 from dotenv import load_dotenv
 
 from config import LLM_MODEL
+from utils.auth import require_password
 from utils.demo import render_demo_banner
 from utils.env import is_demo_mode
 from utils.styles import inject_global_css, render_sidebar_brand
@@ -17,6 +18,9 @@ from utils.ui_style import get_store_color, get_theme
 load_dotenv()
 
 st.set_page_config(page_title="SalesCoach — 리포트", page_icon="📊", layout="wide")
+
+if not require_password():
+    st.stop()
 
 inject_global_css()
 render_sidebar_brand()
