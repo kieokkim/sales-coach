@@ -1,10 +1,11 @@
+import os
 import sqlite3
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent / "salescoach.db"
+DB_PATH = os.getenv("DB_PATH", str(Path(__file__).parent / "salescoach.db"))
 
 
 def get_db() -> sqlite3.Connection:
