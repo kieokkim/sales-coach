@@ -167,3 +167,62 @@ action_draft는 이번 라운드 보류). 이력서 재료 추출을 위해 레�
 기술요소를 사실확인 기반으로 정리했다.
 
 **결과:** 코드 변경 없이 기존 자산의 가시성만 높인 세션이었다.
+
+---
+
+## 2026-07-31: SalesCoach 데모 배포 실행 — pyproject.toml 정리, 배포 가이드, 라이브 검증, 샘플 리포트 체험 버튼
+
+**발견:** 배포 준비(Decision 36) 마무리 세션. push 전 감사에서 API키/
+비밀번호/.env 클린 확인, 지명(부산/제주/서울/여주)·HCC·헬리녹스 노출은
+검토 후 민감하지 않다고 판단해 조치 불필요로 결론. pyproject.toml 정리
+중 리포에 uv.lock이 남아있는 걸 재확인 — Streamlit Cloud 의존성 탐색
+우선순위가 `uv.lock > requirements.txt > pyproject.toml`라 uv.lock을
+방치했다면 plotly 등 3개짜리 빈약한 lock만 잡혀 streamlit 자체가 설치
+안 된 채 배포가 100% 실패했을 것. 라이브 배포 후 Playwright로 실브라우저
+검증하던 중, 업로드 파일 없이 리포트 생성 자체가 막혀 있는 걸 발견.
+
+**원인:** pyproject.toml/uv.lock은 README.md가 실제 문서화한 설치법
+(`uv venv` + `uv pip install -r requirements.txt`)에서 쓰이지 않는
+유물로 확인, 삭제 후 requirements.txt 단일 의존성 파일로 정리.
+리포트 생성 막힘은 버그가 아니라 구조적 설계 공백이었음 — 리포트 생성은
+DB 조회가 아니라 업로드된 원본 오프라인/온라인 엑셀 파일 경로
+(offline_path/online_path)를 그래프 파이프라인이 직접 읽는 구조
+(pages/1_upload.py → 2_loading.py의 `app.invoke`)인 반면, DEMO_MODE
+자동시딩(`utils/demo.py`의 `ensure_demo_data()`)은 `scripts/seed_db.py`가
+같은 샘플 파일을 읽어 daily_kpi에 직접 INSERT하는 완전히 별개 경로라
+7/30일 추이 비교 데이터만 채우고 리포트 생성 경로엔 닿지 않음. 로컬
+개발자는 항상 자기 파일을 들고 있어 이 공백이 안 보였지만, 업로드할
+파일이 없는 공개 데모 방문자는 리포트 생성 버튼 자체가 비활성 상태에
+막힘.
+
+**조치:**
+- .gitignore에 screenshots/, salescoach_mockup*.html, "CLAUDE 복사본.md"
+  추가(임시 산출물). scripts/backfill_from_export.py는 내용 확인 결과
+  하드코딩된 민감정보 없고 파일럿 단계에 실사용 예정이라 정상 커밋.
+- pyproject.toml/uv.lock 삭제 완료 재확인, DEPLOY.md 신규 작성(Streamlit
+  Cloud 배포 절차 + 시크릿 설정 + Render 파일럿 전환 메모 + 라이브 검증
+  체크리스트).
+- 리포트 기준일 기본값을 DEMO_MODE일 때만 2025-05-01로 고정(그 외 로직
+  기존 `date.today()-1` 그대로 유지, 최소 분기만 추가).
+- db.py의 monthly_target 제거 WIP는 이번 세션과 무관한 별개 트랙이라
+  git stash로 분리 보관("monthly_target cleanup WIP - separate session")
+  — 다음 레포정리 세션 대상으로 이월.
+- 리포트 생성 구조적 공백 대응: DEMO_MODE 전용 "샘플로 체험하기" 버튼을
+  pages/1_upload.py에 추가, 기존 91일 샘플 파일(sample_offline_3months.xlsx
+  / sample_online_3months.xlsx — seed_db.py가 쓰는 것과 동일 파일)을
+  report_date=20250501로 그대로 그래프 파이프라인에 태움. 업로드 위젯이나
+  기존 실사용 플로우는 무변경 — DEMO_MODE 분기 안에서만 버튼 하나
+  추가하는 최소 변경. 하루치 더미가 아니라 91일 전체 baseline 위에서
+  도는 완전한 리포트라 추세/목표달성률/반품이상탐지 판단 로직 전부
+  포함해 동작.
+- rate limit(`utils/ratelimit.py`, `check_and_record_report_generation`)
+  구조 재확인 — `st.session_state` 기반 rolling 1시간 윈도우라 방문자
+  세션별 독립 카운트, 다른 방문자 요청과 섞이지 않음.
+
+**결과:** pytest 34개 전체 무회귀(판정 로직 무변경, eval 불필요).
+커밋 6건 기능별 분리(chore/docs/fix/feat) 후 push, 최종 d289e4f.
+Streamlit Cloud 재배포 후 라이브 검증 전항목 통과: 자동시딩 동작,
+데모배너 노출, 비밀번호 게이트 DEMO_MODE 자동우회, 채팅 페이지가
+입력창 없이 기능설명으로 대체, 샘플 체험 버튼으로 2025-05-01 리포트
+정상 생성(빈 리포트 아님), 시간당 5건 제한 확인. 배포 URL:
+https://sales-coach-demo.streamlit.app/
