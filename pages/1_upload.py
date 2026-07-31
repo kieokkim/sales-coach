@@ -89,7 +89,7 @@ col3, col4 = st.columns(2)
 with col3:
     report_date = st.date_input(
         "리포트 기준일",
-        value=date.today() - timedelta(days=1),
+        value=date(2025, 5, 1) if is_demo_mode() else date.today() - timedelta(days=1),
         help="분석 기준일을 선택하세요.",
     )
 
