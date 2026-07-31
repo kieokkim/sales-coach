@@ -7,3 +7,7 @@ __pycache__/
 *.db
 .venv/
 01_push_handoff.md
+screenshots/
+salescoach_mockup.html
+salescoach_mockup_v2.html
+CLAUDE 복사본.md
