@@ -24,6 +24,20 @@ render_sidebar_brand()
 
 if is_demo_mode():
     render_demo_banner()
+    if st.button("🧪 샘플로 체험하기 (2025-05-01 리포트 생성)", use_container_width=True):
+        if not check_and_record_report_generation():
+            st.error("시간당 리포트 생성 한도(5건)를 초과했습니다. 잠시 후 다시 시도해주세요.")
+            st.stop()
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        st.session_state["run_config"] = {
+            "offline_path": os.path.join(repo_root, "data", "sample_offline_3months.xlsx"),
+            "online_path": os.path.join(repo_root, "data", "sample_online_3months.xlsx"),
+            "output_options": ["html", "excel"],
+            "recipient_emails": [],
+            "report_date": "20250501",
+            "errors": [],
+        }
+        st.switch_page("pages/2_loading.py")
 
 st.markdown("""
 <div style="margin-bottom:24px;">
